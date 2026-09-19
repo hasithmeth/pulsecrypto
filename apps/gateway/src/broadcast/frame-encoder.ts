@@ -1,11 +1,27 @@
-import type { Book, PairSymbol, Ticker } from '@pulsecrypto/contracts';
+import { encode } from '@msgpack/msgpack';
+import type { Book, Encoding, PairSymbol, Ticker } from '@pulsecrypto/contracts';
 import type { MarketState } from '../domain/market-state';
 import { computeBookMetrics } from '../domain/order-book';
 import type { PairRegistry } from '../domain/pairs';
+import { packMarketFrame } from './msgpack-frame';
 
-export interface Fragment {
-  readonly seq: number;
-  readonly json: string;
+/** One pair's state at one sequence number, encoded lazily and at most once per wire format. */
+export class Fragment {
+  private cachedJson: string | undefined;
+  private cachedPacked: Uint8Array | undefined;
+
+  constructor(
+    readonly seq: number,
+    private readonly value: Ticker | Book,
+  ) {}
+
+  get json(): string {
+    return (this.cachedJson ??= JSON.stringify(this.value));
+  }
+
+  get packed(): Uint8Array {
+    return (this.cachedPacked ??= encode(this.value));
+  }
 }
 
 /**
@@ -29,7 +45,7 @@ export class FrameEncoder {
     const cached = this.tickers.get(pair);
     if (cached?.seq === current.seq) return cached;
 
-    const ticker: Ticker = {
+    const fragment = new Fragment(current.seq, {
       pair,
       ts: current.ts,
       price: current.price,
@@ -37,8 +53,7 @@ export class FrameEncoder {
       high24h: current.stats.high,
       low24h: current.stats.low,
       volume24h: current.stats.volume,
-    };
-    const fragment = { seq: current.seq, json: JSON.stringify(ticker) };
+    });
     this.tickers.set(pair, fragment);
     return fragment;
   }
@@ -51,20 +66,33 @@ export class FrameEncoder {
 
     const { snapshot } = current;
     const priceDecimals = this.registry.get(pair)?.priceDecimals ?? 8;
-    const book: Book = {
+    const fragment = new Fragment(current.seq, {
       pair,
       ts: snapshot.receivedAt,
       lastUpdateId: snapshot.lastUpdateId,
       ...computeBookMetrics(snapshot.bids, snapshot.asks, priceDecimals),
       bids: snapshot.bids.slice(0, this.bookDepth),
       asks: snapshot.asks.slice(0, this.bookDepth),
-    };
-    const fragment = { seq: current.seq, json: JSON.stringify(book) };
+    });
     this.books.set(pair, fragment);
     return fragment;
   }
 
-  marketFrame(ts: number, tickers: readonly string[], books: readonly string[]): string {
-    return `{"type":"market","ts":${ts},"tickers":[${tickers.join(',')}],"books":[${books.join(',')}]}`;
+  marketFrame(
+    encoding: Encoding,
+    ts: number,
+    tickers: readonly Fragment[],
+    books: readonly Fragment[],
+  ): string | Uint8Array {
+    if (encoding === 'msgpack') {
+      return packMarketFrame(
+        ts,
+        tickers.map((fragment) => fragment.packed),
+        books.map((fragment) => fragment.packed),
+      );
+    }
+    const join = (fragments: readonly Fragment[]): string =>
+      fragments.map((fragment) => fragment.json).join(',');
+    return `{"type":"market","ts":${ts},"tickers":[${join(tickers)}],"books":[${join(books)}]}`;
   }
 }
