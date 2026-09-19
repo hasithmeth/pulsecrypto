@@ -292,6 +292,7 @@ Where the app departs from the design, it is deliberate:
 - **Screens the design does not contain.** Markets (required by the brief), Sign in and Sign up are composed from the design system only: the same header, the sheet's search field and button styles, the same typography.
 - **The Telemetry tab** has no screen of its own in Figma. It shows only the Settings design's telemetry blocks: the Performance Dashboard and the three micro-cards.
 - **Fictional copy is replaced by real values, layout unchanged.** GPU ACCELERATION reports the UI-thread animation pipeline (there is no WebGL in React Native), API LATENCY shows the measured average ping to the gateway, STORAGE CACHE shows real on-device storage use (there is no IndexedDB), and the memory graph plots the real JS heap.
+- **One header, not two.** Figma's two headers disagree on the menu button (34pt with 8pt padding on the Terminal, 26pt with 4pt on Settings), which made the hamburger jump 4pt when switching tabs. The Terminal's metrics are used on every screen; the title sits at the same x in both designs either way.
 - **The depth chart is drawn from live data**, not the mockup's static image: smooth monotone curves that cannot overshoot, with the spread at the exact centre as designed. Levels are spaced by rank, because on a price axis twenty levels within a few cents collapse into a sliver.
 
 ## How AI-assisted tools were used

@@ -9,11 +9,7 @@ import { useConnectionStatus } from './use-connection-status';
 
 interface AppHeaderProps {
   readonly title: string;
-  /**
-   * The two designed screens use slightly different header metrics. `terminal`
-   * puts the status beside the title and takes a trailing action; `pill` shows
-   * the status as a pill on the right.
-   */
+  /** `terminal` puts the status beside the title and takes a trailing action; `pill` shows it on the right. */
   readonly variant: 'terminal' | 'pill';
   readonly trailing?: ReactNode;
 }
@@ -26,13 +22,13 @@ export function AppHeader({ title, variant, trailing }: AppHeaderProps) {
   return (
     <View style={[styles.container, { paddingTop: top }]}>
       <View style={styles.bar}>
-        <View style={[styles.start, { gap: isTerminal ? spacing.sm : spacing.lg }]}>
+        <View style={styles.start}>
           <Pressable
             onPress={openDrawer}
             hitSlop={12}
             accessibilityRole="button"
             accessibilityLabel="Open menu"
-            style={isTerminal ? styles.menuTerminal : styles.menuPill}
+            style={styles.menu}
           >
             <Icon name="menu" color="positive" />
           </Pressable>
@@ -92,14 +88,12 @@ const styles = StyleSheet.create({
     justifyContent: 'space-between',
     paddingHorizontal: spacing.lg,
   },
-  start: { flexDirection: 'row', alignItems: 'center', flexShrink: 1 },
-  menuTerminal: {
-    paddingTop: 8,
-    paddingBottom: 14,
-    paddingHorizontal: 8,
-    borderRadius: radius.lg,
-  },
-  menuPill: { paddingTop: 4, paddingBottom: 12, paddingHorizontal: 4, borderRadius: radius.xs },
+  start: { flexDirection: 'row', alignItems: 'center', gap: spacing.sm, flexShrink: 1 },
+  // Figma's two headers disagree on the menu button (34pt with 8pt padding on the
+  // Terminal, 26pt with 4pt on Settings), which would make the icon jump between
+  // tabs. The Terminal's metrics are used everywhere; the title lands on the same
+  // x in both designs either way.
+  menu: { paddingTop: 8, paddingBottom: 14, paddingHorizontal: 8, borderRadius: radius.lg },
   statusLabel: {
     flexDirection: 'row',
     alignItems: 'center',
