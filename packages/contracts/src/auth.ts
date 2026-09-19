@@ -42,11 +42,12 @@ export const UserSettingsSchema = z.object({
 });
 export type UserSettings = z.infer<typeof UserSettingsSchema>;
 
+/** Toggle defaults mirror the state the design depicts: binary protocol on, adaptive polling off. */
 export const DEFAULT_USER_SETTINGS: UserSettings = {
   favourites: [],
   selectedPair: 'BTCUSDT',
   streamIntervalMs: null,
-  binaryProtocol: false,
+  binaryProtocol: true,
   adaptivePolling: false,
 };
 
