@@ -67,7 +67,7 @@ No app configuration is needed. The app derives the gateway host from the Expo d
 
 ```bash
 pnpm check                                  # lint + typecheck + tests for every package
-pnpm test                                   # tests only (183 across the workspace)
+pnpm test                                   # tests only (185 across the workspace)
 pnpm format:check
 
 pnpm --filter @pulsecrypto/gateway build    # bundle to apps/gateway/dist
@@ -325,7 +325,7 @@ Books save less because a float64 costs 9 bytes either way. The cost is decoding
 
 ### Mobile
 
-- **Five kinds of state, five owners.** Server cache (REST metadata) in TanStack Query. Live market data in a Zustand store written only by the stream layer. Connection status in its own small store. The session in an auth store backed by secure storage. User settings in one store that the sync layer loads, caches and pushes per user. Pull-to-refresh calls `refetch()` on the query and cannot touch the socket, because the two never share an owner.
+- **Five kinds of state, five owners.** Server cache (REST metadata) in TanStack Query. Live market data in a Zustand store written only by the stream layer. Connection status in its own small store. The session in an auth store backed by secure storage. User settings in one store that the sync layer loads, caches and pushes per user. Pull-to-refresh calls `refetch()` on the query and cannot touch the socket, because the two never share an owner. It is available on both screens that show metadata, Markets and Terminal. A local gateway answers in under a millisecond, so the indicator is held for at least 600 ms; without that floor a refresh that worked looked like one that did not.
 - **The live pipeline.** `onmessage` → decode (`JSON.parse` for text frames, MessagePack for binary) → `FrameCoalescer` (latest per pair) → one store commit per animation frame → per-row selectors → memoised rows with primitive props. A BTC tick re-renders the BTC row and nothing else. Frames that arrive faster than the display can show (after a JS stall, or at a 10 ms interval) collapse into one render.
 - **Animation on the UI thread.** Price flashes and order book depth bars are Reanimated shared values. Depth bars animate `scaleX` with a `transformOrigin`, so there is no layout pass and the animation stays smooth even when the JS thread is busy. Book rows are keyed by rank rather than price, so a bar glides to its new size instead of remounting.
 - **Unfocused tabs are frozen** (`freezeOnBlur`). A hidden watchlist does not re-render for ticks nobody can see. The order book is subscribed only while the Terminal tab is focused.
@@ -359,22 +359,22 @@ Judge real performance on a physical device or a release build. Expo Go in devel
 
 ## Requirement coverage
 
-| Requirement                                                    | Where                                                                         |
-| -------------------------------------------------------------- | ----------------------------------------------------------------------------- |
-| Multiple pairs, 5 minimum                                      | `domain/pairs.ts`, `PAIRS` env (8 by default)                                 |
-| Ingest order book updates                                      | `ingest/binance/` (`depth20@100ms`, `aggTrade`, `ticker`)                     |
-| Buffer/batch, configurable interval (100 ms)                   | `domain/market-state.ts`, `broadcast/broadcaster.ts`, `BROADCAST_INTERVAL_MS` |
-| Slow consumers cannot grow memory                              | `Broadcaster.isCongested`, tested in `broadcaster.test.ts`                    |
-| WebSocket server, pair-tagged payloads                         | `http/stream-route.ts`, [`docs/protocol.md`](docs/protocol.md)                |
-| `GET /pairs/meta`                                              | `http/pairs-meta-route.ts`                                                    |
-| Watchlist: pair, price, 24 h change, live indicator, favourite | `features/markets/market-row.tsx`                                             |
-| Search                                                         | `features/markets/filter-pairs.ts`, `search-field.tsx`                        |
-| Favourites persisted and restored                              | `features/settings/` (per user, on the gateway and cached on the device)      |
-| Details: price, pressure, spread, order book, last updated     | `features/terminal/` (stats strip, order book, depth overlay)                 |
-| Green/red price highlight                                      | `ui/flashing-price.tsx`                                                       |
-| Order book volume animates smoothly                            | `features/terminal/order-book-row.tsx`                                        |
-| Offline: status, last data, auto reconnect                     | `core/stream/market-stream-client.ts`, status in `ui/app-header.tsx`          |
-| Pull-to-refresh without interrupting the stream                | `features/markets/markets-screen.tsx`                                         |
+| Requirement                                                    | Where                                                                                  |
+| -------------------------------------------------------------- | -------------------------------------------------------------------------------------- |
+| Multiple pairs, 5 minimum                                      | `domain/pairs.ts`, `PAIRS` env (8 by default)                                          |
+| Ingest order book updates                                      | `ingest/binance/` (`depth20@100ms`, `aggTrade`, `ticker`)                              |
+| Buffer/batch, configurable interval (100 ms)                   | `domain/market-state.ts`, `broadcast/broadcaster.ts`, `BROADCAST_INTERVAL_MS`          |
+| Slow consumers cannot grow memory                              | `Broadcaster.isCongested`, tested in `broadcaster.test.ts`                             |
+| WebSocket server, pair-tagged payloads                         | `http/stream-route.ts`, [`docs/protocol.md`](docs/protocol.md)                         |
+| `GET /pairs/meta`                                              | `http/pairs-meta-route.ts`                                                             |
+| Watchlist: pair, price, 24 h change, live indicator, favourite | `features/markets/market-row.tsx`                                                      |
+| Search                                                         | `features/markets/filter-pairs.ts`, `search-field.tsx`                                 |
+| Favourites persisted and restored                              | `features/settings/` (per user, on the gateway and cached on the device)               |
+| Details: price, pressure, spread, order book, last updated     | `features/terminal/` (stats strip, order book, depth overlay)                          |
+| Green/red price highlight                                      | `ui/flashing-price.tsx`                                                                |
+| Order book volume animates smoothly                            | `features/terminal/order-book-row.tsx`                                                 |
+| Offline: status, last data, auto reconnect                     | `core/stream/market-stream-client.ts`, status in `ui/app-header.tsx`                   |
+| Pull-to-refresh without interrupting the stream                | `usePairsMetaRefresh` in `features/markets/use-pairs-meta.ts`, on Markets and Terminal |
 
 Each of these was exercised on the Android emulator: live prices and flashes, search, a favourite surviving a cold restart, the order book and depth chart, the slider changing the gateway's cadence for that client (9 frames/s down to 2 and back), a gateway stop flipping the header status to RECONNECTING while the last data stayed on screen, recovery within about 2 s of the gateway returning, and a pull-to-refresh during which the gateway logged no reconnect. On the iOS simulator every screen was compared with the design, and sign up, sign in, streaming, favourites and an untouched reconnect after a gateway outage were verified.
 
@@ -426,7 +426,7 @@ I used **Claude Code** (Anthropic's CLI agent) throughout, as a pair programmer 
 
 - **Reading the brief and the design.** The `.fig` file is a binary format. Claude wrote a small decoder for Figma's kiwi schema to extract the exact layer tree, colours, fonts and sizes, which is where the theme tokens come from and how the missing watchlist screen was noticed.
 - **Planning before code.** I set the constraints (Fastify, the latest Expo SDK, a monorepo, senior-level conventions, minimal comments). Claude produced an implementation plan; I made the open decisions (Expo Go compatibility, how much of the mockup to build, how to handle Android tooling) and approved the plan before any code was written.
-- **Implementation and tests.** Claude wrote the code and the 183 tests in small commits, running lint, typecheck and tests after each step. Current package versions and Expo/Binance behaviour were checked against npm and the official docs rather than assumed.
+- **Implementation and tests.** Claude wrote the code and the 185 tests in small commits, running lint, typecheck and tests after each step. Current package versions and Expo/Binance behaviour were checked against npm and the official docs rather than assumed.
 - **Verification on real targets.** Claude ran the gateway against live Binance, load-tested it with the simulated feed and a deliberately stalled client, and drove the app on the Android emulator through `adb`. That surfaced real defects that were then fixed: an Android text-clipping bug, a telemetry sampler that read its counters inside a lazy state updater, a flush deadline measured from connect time instead of send time, hidden tabs re-rendering on every tick, and a first reconnect attempt that never fired on an idle iOS simulator.
 - **Design review against the real Figma file.** The first build worked from a decoded layer tree that could not be rendered, and I found it had drifted from the design: regular instead of bold weights, lookalike icons, a missing drawer, tab and toggles. I gave Claude the live Figma file and my list of defects. It pulled exact styles and SVG assets through Figma's developer tooling, produced a gap analysis that added further drifts to my list, asked me to decide the places where the design and the brief conflict, and then rebuilt the UI and compared each region with the Figma render on the emulator.
 - **Accounts.** I asked for login and per-user settings; the security choices (scrypt, constant-time comparison, no user enumeration, token in a message rather than the URL, secure storage on device) were proposed by Claude and reviewed by me.
