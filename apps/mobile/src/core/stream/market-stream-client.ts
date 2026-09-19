@@ -1,6 +1,9 @@
+import { decode } from '@msgpack/msgpack';
 import {
+  CloseCode,
   PROTOCOL_VERSION,
   type ClientMessage,
+  type Encoding,
   type HelloMessage,
   type MarketMessage,
   type PairSymbol,
@@ -16,8 +19,11 @@ export interface ConnectionSnapshot {
   readonly retryAt: number | null;
   readonly upstream: UpstreamStatus | null;
   readonly intervalMs: number | null;
+  readonly encoding: Encoding | null;
   readonly limits: HelloMessage['limits'] | null;
   readonly latencyMs: number | null;
+  /** The user stopped the stream on purpose, as opposed to it being down. */
+  readonly paused: boolean;
 }
 
 export const INITIAL_CONNECTION: ConnectionSnapshot = {
@@ -26,13 +32,17 @@ export const INITIAL_CONNECTION: ConnectionSnapshot = {
   retryAt: null,
   upstream: null,
   intervalMs: null,
+  encoding: null,
   limits: null,
   latencyMs: null,
+  paused: false,
 };
 
 /** The slice of the WebSocket API the client relies on, so tests can drive a fake. */
 export interface WebSocketLike {
   readonly readyState: number;
+  binaryType: string;
+  onopen: ((event: Event) => void) | null;
   onmessage: ((event: MessageEvent) => void) | null;
   onerror: ((event: Event) => void) | null;
   onclose: ((event: CloseEvent) => void) | null;
@@ -44,6 +54,10 @@ export interface MarketStreamClientOptions {
   readonly url: string;
   readonly onMarket: (message: MarketMessage) => void;
   readonly onConnection: (snapshot: ConnectionSnapshot) => void;
+  /** Read on every connect, so a fresh sign-in is picked up without rebuilding the client. */
+  readonly getToken: () => string | null;
+  /** The gateway rejected the token; retrying with it would only loop. */
+  readonly onUnauthorized: () => void;
   readonly createSocket?: (url: string) => WebSocketLike;
   readonly backoff?: Backoff;
   readonly now?: () => number;
@@ -74,9 +88,11 @@ export class MarketStreamClient {
   private readonly bookSubscriptions = new Map<PairSymbol, number>();
   private readonly pendingPings = new Map<number, number>();
   private desiredIntervalMs: number | undefined;
+  private desiredEncoding: Encoding = 'json';
   private nextPingId = 1;
 
   private started = false;
+  private paused = false;
   private foreground = true;
   private online = true;
   private hasOpened = false;
@@ -105,6 +121,12 @@ export class MarketStreamClient {
 
   stop(): void {
     this.started = false;
+    this.reconcile();
+  }
+
+  setPaused(paused: boolean): void {
+    if (this.paused === paused) return;
+    this.paused = paused;
     this.reconcile();
   }
 
@@ -145,19 +167,33 @@ export class MarketStreamClient {
     this.send({ type: 'configure', intervalMs });
   }
 
+  requestEncoding(encoding: Encoding): void {
+    this.desiredEncoding = encoding;
+    this.send({ type: 'configure', encoding });
+  }
+
   private reconcile(): void {
-    if (!this.started || !this.foreground) {
+    if (!this.started || !this.foreground || this.paused) {
       this.teardown();
       this.update({
         ...INITIAL_CONNECTION,
         intervalMs: this.snapshot.intervalMs,
+        encoding: this.snapshot.encoding,
         limits: this.snapshot.limits,
+        paused: this.started && this.paused,
       });
       return;
     }
     if (!this.online) {
       this.teardown();
-      this.update({ phase: 'offline', attempt: 0, retryAt: null, upstream: null, latencyMs: null });
+      this.update({
+        phase: 'offline',
+        attempt: 0,
+        retryAt: null,
+        upstream: null,
+        latencyMs: null,
+        paused: false,
+      });
       return;
     }
     if (this.socket || this.retryTimer) return;
@@ -171,20 +207,37 @@ export class MarketStreamClient {
       phase: this.hasOpened || this.backoff.attempt > 0 ? 'reconnecting' : 'connecting',
       attempt: this.backoff.attempt,
       retryAt: null,
+      paused: false,
     });
 
     const socket = this.createSocket(this.options.url);
+    socket.binaryType = 'arraybuffer';
     this.socket = socket;
     const isCurrent = (): boolean => this.socket === socket;
 
+    socket.onopen = () => {
+      if (!isCurrent()) return;
+      const token = this.options.getToken();
+      if (token === null) {
+        this.options.onUnauthorized();
+        return;
+      }
+      socket.send(JSON.stringify({ type: 'auth', token } satisfies ClientMessage));
+    };
     socket.onmessage = (event) => {
       if (isCurrent()) this.handleMessage(event.data);
     };
     socket.onerror = () => {
       if (isCurrent()) this.handleDisconnect();
     };
-    socket.onclose = () => {
-      if (isCurrent()) this.handleDisconnect();
+    socket.onclose = (event) => {
+      if (!isCurrent()) return;
+      if (event.code === CloseCode.Unauthorized) {
+        this.dropSocket();
+        this.options.onUnauthorized();
+        return;
+      }
+      this.handleDisconnect();
     };
 
     this.handshakeTimer = setTimeout(() => {
@@ -192,15 +245,17 @@ export class MarketStreamClient {
     }, this.handshakeTimeoutMs);
   }
 
+  /** Text frames are JSON and binary frames are MessagePack, so no negotiation state is needed to decode. */
   private handleMessage(data: unknown): void {
-    if (typeof data !== 'string') return;
+    const binary = data instanceof ArrayBuffer;
+    if (!binary && typeof data !== 'string') return;
     this.counters.messages += 1;
-    this.counters.bytes += data.length;
+    this.counters.bytes += binary ? data.byteLength : data.length;
     this.lastMessageAt = this.now();
 
     let message: { type?: unknown };
     try {
-      message = JSON.parse(data) as { type?: unknown };
+      message = (binary ? decode(new Uint8Array(data)) : JSON.parse(data)) as { type?: unknown };
     } catch {
       this.counters.malformed += 1;
       return;
@@ -219,9 +274,11 @@ export class MarketStreamClient {
       case 'status':
         this.update({ upstream: (message as { upstream: UpstreamStatus }).upstream });
         return;
-      case 'configured':
-        this.update({ intervalMs: (message as { intervalMs: number }).intervalMs });
+      case 'configured': {
+        const { intervalMs, encoding } = message as { intervalMs: number; encoding: Encoding };
+        this.update({ intervalMs, encoding });
         return;
+      }
       case 'pong':
         this.handlePong((message as { id: number }).id);
         return;
@@ -249,14 +306,20 @@ export class MarketStreamClient {
       retryAt: null,
       upstream: hello.upstream,
       intervalMs: hello.intervalMs,
+      encoding: hello.encoding,
       limits: hello.limits,
     });
 
     for (const pair of this.bookSubscriptions.keys()) {
       this.send({ type: 'subscribe', channel: 'book', pair });
     }
-    if (this.desiredIntervalMs !== undefined && this.desiredIntervalMs !== hello.intervalMs) {
-      this.send({ type: 'configure', intervalMs: this.desiredIntervalMs });
+    const intervalMs =
+      this.desiredIntervalMs !== undefined && this.desiredIntervalMs !== hello.intervalMs
+        ? this.desiredIntervalMs
+        : undefined;
+    const encoding = this.desiredEncoding !== hello.encoding ? this.desiredEncoding : undefined;
+    if (intervalMs !== undefined || encoding !== undefined) {
+      this.send({ type: 'configure', intervalMs, encoding });
     }
 
     this.watchdogTimer = setInterval(() => {
@@ -283,7 +346,7 @@ export class MarketStreamClient {
 
   private handleDisconnect(): void {
     this.dropSocket();
-    if (!this.started || !this.foreground || !this.online) return;
+    if (!this.started || !this.foreground || !this.online || this.paused) return;
 
     const delayMs = this.backoff.next();
     this.update({
@@ -313,7 +376,7 @@ export class MarketStreamClient {
     const socket = this.socket;
     this.socket = undefined;
     if (!socket) return;
-    socket.onmessage = socket.onerror = socket.onclose = null;
+    socket.onopen = socket.onmessage = socket.onerror = socket.onclose = null;
     try {
       socket.close();
     } catch {

@@ -1,3 +1,4 @@
+import { encode } from '@msgpack/msgpack';
 import type { ClientMessage, HelloMessage, MarketMessage } from '@pulsecrypto/contracts';
 import {
   MarketStreamClient,
@@ -7,6 +8,8 @@ import {
 
 class FakeSocket implements WebSocketLike {
   readyState = 1;
+  binaryType = 'blob';
+  onopen: WebSocketLike['onopen'] = null;
   onmessage: WebSocketLike['onmessage'] = null;
   onerror: WebSocketLike['onerror'] = null;
   onclose: WebSocketLike['onclose'] = null;
@@ -22,13 +25,30 @@ class FakeSocket implements WebSocketLike {
     this.readyState = 3;
   }
 
+  /** Completes the transport handshake, after which the client must authenticate. */
+  open(): void {
+    this.onopen?.({} as Event);
+  }
+
   receive(message: object): void {
     this.onmessage?.({ data: JSON.stringify(message) } as MessageEvent);
   }
 
-  drop(): void {
+  receiveBinary(message: object): void {
+    const bytes = encode(message);
+    const data = bytes.buffer.slice(bytes.byteOffset, bytes.byteOffset + bytes.byteLength);
+    this.onmessage?.({ data } as MessageEvent);
+  }
+
+  /** Opens and completes the application handshake in one step. */
+  welcome(overrides: Partial<HelloMessage> = {}): void {
+    this.open();
+    this.receive(hello(overrides));
+  }
+
+  drop(code = 1006): void {
     this.readyState = 3;
-    this.onclose?.({} as CloseEvent);
+    this.onclose?.({ code } as CloseEvent);
   }
 }
 
@@ -44,8 +64,9 @@ const hello = (overrides: Partial<HelloMessage> = {}): HelloMessage => ({
   ...overrides,
 });
 
-function setup() {
+function setup({ token = 'session-token' }: { token?: string | null } = {}) {
   const sockets: FakeSocket[] = [];
+  const onUnauthorized = jest.fn();
   const snapshots: ConnectionSnapshot[] = [];
   const market: MarketMessage[] = [];
   const delays = [500, 1_000, 2_000];
@@ -55,6 +76,8 @@ function setup() {
     url: 'ws://gateway.test/ws',
     onMarket: (message) => market.push(message),
     onConnection: (snapshot) => snapshots.push(snapshot),
+    getToken: () => token,
+    onUnauthorized,
     createSocket: () => {
       const socket = new FakeSocket();
       sockets.push(socket);
@@ -83,7 +106,7 @@ function setup() {
     return socket;
   };
 
-  return { client, sockets, socketAt, latest, market };
+  return { client, sockets, socketAt, latest, market, onUnauthorized };
 }
 
 beforeEach(() => {
@@ -101,8 +124,69 @@ describe('MarketStreamClient', () => {
     client.start();
     expect(latest().phase).toBe('connecting');
 
-    socketAt(0).receive(hello({ intervalMs: 250 }));
+    socketAt(0).welcome({ intervalMs: 250 });
     expect(latest()).toMatchObject({ phase: 'open', upstream: 'live', intervalMs: 250 });
+    client.stop();
+  });
+
+  it('authenticates as soon as the socket opens, before anything else', () => {
+    const { client, socketAt } = setup();
+    client.subscribeBook('BTCUSDT');
+    client.start();
+
+    socketAt(0).open();
+
+    expect(socketAt(0).binaryType).toBe('arraybuffer');
+    expect(socketAt(0).sent).toEqual([{ type: 'auth', token: 'session-token' }]);
+    client.stop();
+  });
+
+  it('reports a missing or rejected token instead of retrying with it forever', () => {
+    const missing = setup({ token: null });
+    missing.client.start();
+    missing.socketAt(0).open();
+    expect(missing.onUnauthorized).toHaveBeenCalledTimes(1);
+    missing.client.stop();
+
+    const rejected = setup();
+    rejected.client.start();
+    rejected.socketAt(0).open();
+    rejected.socketAt(0).drop(4003);
+    jest.advanceTimersByTime(60_000);
+
+    expect(rejected.onUnauthorized).toHaveBeenCalledTimes(1);
+    expect(rejected.sockets).toHaveLength(1);
+    rejected.client.stop();
+  });
+
+  it('decodes binary frames as MessagePack and text frames as JSON', () => {
+    const { client, socketAt, market } = setup();
+    client.start();
+    socketAt(0).welcome();
+    const frame = { type: 'market', ts: 7, tickers: [], books: [] };
+
+    socketAt(0).receiveBinary(frame);
+    socketAt(0).receive(frame);
+
+    expect(market).toEqual([frame, frame]);
+    expect(client.counters.malformed).toBe(0);
+    client.stop();
+  });
+
+  it('pauses on request, reports it, and resumes with a fresh connection', () => {
+    const { client, sockets, socketAt, latest } = setup();
+    client.start();
+    socketAt(0).welcome();
+
+    client.setPaused(true);
+    expect(socketAt(0).closed).toBe(true);
+    expect(latest()).toMatchObject({ phase: 'idle', paused: true });
+    jest.advanceTimersByTime(60_000);
+    expect(sockets).toHaveLength(1);
+
+    client.setPaused(false);
+    expect(sockets).toHaveLength(2);
+    expect(latest().paused).toBe(false);
     client.stop();
   });
 
@@ -110,7 +194,7 @@ describe('MarketStreamClient', () => {
     const { client, socketAt, latest, market } = setup();
     client.start();
     const socket = socketAt(0);
-    socket.receive(hello());
+    socket.welcome();
 
     socket.receive({ type: 'market', ts: 1, tickers: [], books: [] });
     socket.receive({ type: 'status', upstream: 'down' });
@@ -126,7 +210,7 @@ describe('MarketStreamClient', () => {
   it('ignores malformed frames without dropping the connection', () => {
     const { client, socketAt, latest } = setup();
     client.start();
-    socketAt(0).receive(hello());
+    socketAt(0).welcome();
 
     socketAt(0).onmessage?.({ data: '{not json' } as MessageEvent);
     socketAt(0).receive({ type: 'mystery' });
@@ -139,7 +223,7 @@ describe('MarketStreamClient', () => {
   it('reconnects with increasing backoff and resets it after a successful hello', () => {
     const { client, sockets, socketAt, latest } = setup();
     client.start();
-    socketAt(0).receive(hello());
+    socketAt(0).welcome();
 
     socketAt(0).drop();
     expect(latest()).toMatchObject({ phase: 'reconnecting', attempt: 1, upstream: null });
@@ -153,32 +237,35 @@ describe('MarketStreamClient', () => {
     jest.advanceTimersByTime(1);
     expect(sockets).toHaveLength(3);
 
-    socketAt(2).receive(hello());
+    socketAt(2).welcome();
     expect(latest()).toMatchObject({ phase: 'open', attempt: 0 });
     client.stop();
   });
 
-  it('replays subscriptions and the requested interval after every reconnect', () => {
+  it('replays subscriptions, interval and encoding after every reconnect', () => {
     const { client, socketAt } = setup();
     client.subscribeBook('BTCUSDT');
     client.requestInterval(250);
+    client.requestEncoding('msgpack');
     client.start();
 
-    socketAt(0).receive(hello());
+    socketAt(0).welcome();
     expect(socketAt(0).sent).toEqual(
       expect.arrayContaining([
+        { type: 'auth', token: 'session-token' },
         { type: 'subscribe', channel: 'book', pair: 'BTCUSDT' },
-        { type: 'configure', intervalMs: 250 },
+        { type: 'configure', intervalMs: 250, encoding: 'msgpack' },
       ]),
     );
 
     socketAt(0).drop();
     jest.advanceTimersByTime(500);
-    socketAt(1).receive(hello());
+    socketAt(1).welcome();
     expect(socketAt(1).sent).toEqual(
       expect.arrayContaining([
+        { type: 'auth', token: 'session-token' },
         { type: 'subscribe', channel: 'book', pair: 'BTCUSDT' },
-        { type: 'configure', intervalMs: 250 },
+        { type: 'configure', intervalMs: 250, encoding: 'msgpack' },
       ]),
     );
     client.stop();
@@ -187,7 +274,7 @@ describe('MarketStreamClient', () => {
   it('reference counts book subscriptions shared between screens', () => {
     const { client, socketAt } = setup();
     client.start();
-    socketAt(0).receive(hello());
+    socketAt(0).welcome();
     const ofType = (type: ClientMessage['type']): ClientMessage[] =>
       socketAt(0).sent.filter((message) => message.type === type);
 
@@ -209,7 +296,7 @@ describe('MarketStreamClient', () => {
   it('treats a silent socket as dead and reconnects', () => {
     const { client, sockets, socketAt, latest } = setup();
     client.start();
-    socketAt(0).receive(hello());
+    socketAt(0).welcome();
 
     jest.advanceTimersByTime(12_000);
 
@@ -234,7 +321,7 @@ describe('MarketStreamClient', () => {
   it('waits while the device is offline and reconnects the moment it returns', () => {
     const { client, sockets, socketAt, latest } = setup();
     client.start();
-    socketAt(0).receive(hello());
+    socketAt(0).welcome();
 
     client.setOnline(false);
     expect(latest().phase).toBe('offline');
@@ -250,7 +337,7 @@ describe('MarketStreamClient', () => {
   it('releases the socket in the background and restores it in the foreground', () => {
     const { client, sockets, socketAt, latest } = setup();
     client.start();
-    socketAt(0).receive(hello());
+    socketAt(0).welcome();
 
     client.setForeground(false);
     expect(socketAt(0).closed).toBe(true);
@@ -264,7 +351,7 @@ describe('MarketStreamClient', () => {
   it('leaves no timers running once stopped', () => {
     const { client, socketAt } = setup();
     client.start();
-    socketAt(0).receive(hello());
+    socketAt(0).welcome();
     socketAt(0).drop();
 
     client.stop();

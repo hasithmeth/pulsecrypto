@@ -1,4 +1,5 @@
 import { gateway } from '@/core/config/gateway';
+import { getSessionToken, useAuthStore } from '@/features/auth/auth-store';
 import { useConnectionStore } from './connection-store';
 import { FrameCoalescer } from './frame-coalescer';
 import { useMarketStore } from './market-store';
@@ -15,5 +16,9 @@ export const marketStream = new MarketStreamClient({
   },
   onConnection: (snapshot) => {
     useConnectionStore.setState(snapshot);
+  },
+  getToken: getSessionToken,
+  onUnauthorized: () => {
+    void useAuthStore.getState().signOut();
   },
 });

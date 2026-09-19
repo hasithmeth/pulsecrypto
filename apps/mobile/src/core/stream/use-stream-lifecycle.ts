@@ -7,9 +7,11 @@ import { marketStream } from './market-stream';
  * Ties the connection to the app's real-world conditions. The socket is
  * released in the background, where the OS would silently kill it anyway, and
  * a regained network triggers an immediate retry instead of waiting out backoff.
+ * It only runs for a signed-in user, because the gateway refuses anonymous streams.
  */
-export function useStreamLifecycle(): void {
+export function useStreamLifecycle(enabled: boolean): void {
   useEffect(() => {
+    if (!enabled) return;
     marketStream.start();
 
     const appState = AppState.addEventListener('change', (status) => {
@@ -24,5 +26,5 @@ export function useStreamLifecycle(): void {
       unsubscribeNetInfo();
       marketStream.stop();
     };
-  }, []);
+  }, [enabled]);
 }
