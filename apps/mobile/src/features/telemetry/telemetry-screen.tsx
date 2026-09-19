@@ -15,15 +15,25 @@ import { useTelemetry, type TelemetrySample } from './use-telemetry';
 
 const TARGET_FPS = 60;
 
-const HEALTHY_LAG_MS = 50;
-const DEGRADED_LAG_MS = 150;
+const HEALTHY_COALESCED_SHARE = 0.2;
+const SATURATED_COALESCED_SHARE = 0.6;
 
-/** Health reflects JS thread congestion, which the app controls, not the display's frame pacing. */
-function assessHealth(sample: TelemetrySample): { label: string; tone: ColorToken } {
-  if (sample.fps === 0) return { label: 'SAMPLING', tone: 'textSecondary' };
-  if (sample.eventLoopLagMs <= HEALTHY_LAG_MS) return { label: 'HEALTHY', tone: 'positive' };
-  if (sample.eventLoopLagMs <= DEGRADED_LAG_MS) return { label: 'DEGRADED', tone: 'accent' };
-  return { label: 'STRUGGLING', tone: 'negative' };
+/**
+ * Health asks whether the UI keeps up with the stream: the share of received
+ * frames that had to be merged before React could apply them. Unlike frame rate
+ * or timer lag, which mostly describe the device (an idle emulator scores badly
+ * on both), this describes the app, and the slider above is the remedy.
+ */
+function assessHealth({ commitsPerSecond, coalescedPerSecond }: TelemetrySample): {
+  label: string;
+  tone: ColorToken;
+} {
+  const frames = commitsPerSecond + coalescedPerSecond;
+  if (frames === 0) return { label: 'IDLE', tone: 'textSecondary' };
+  const coalescedShare = coalescedPerSecond / frames;
+  if (coalescedShare <= HEALTHY_COALESCED_SHARE) return { label: 'HEALTHY', tone: 'positive' };
+  if (coalescedShare <= SATURATED_COALESCED_SHARE) return { label: 'CONFLATING', tone: 'accent' };
+  return { label: 'SATURATED', tone: 'negative' };
 }
 
 export function TelemetryScreen() {
