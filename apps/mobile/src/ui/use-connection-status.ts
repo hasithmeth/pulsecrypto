@@ -3,17 +3,19 @@ import type { ColorToken } from './theme';
 
 export interface ConnectionStatus {
   readonly label: string;
+  /** Short form for the header pill, which the design sizes for a four-letter word. */
+  readonly pillLabel: string;
   readonly tone: ColorToken;
   readonly isLive: boolean;
 }
 
 const STATUS = {
-  live: { label: 'CONNECTED', tone: 'positive', isLive: true },
-  feedDown: { label: 'FEED DOWN', tone: 'accent', isLive: false },
-  connecting: { label: 'CONNECTING', tone: 'accent', isLive: false },
-  reconnecting: { label: 'RECONNECTING', tone: 'accent', isLive: false },
-  offline: { label: 'OFFLINE', tone: 'negative', isLive: false },
-  idle: { label: 'PAUSED', tone: 'textMuted', isLive: false },
+  live: { label: 'CONNECTED', pillLabel: 'LIVE', tone: 'positive', isLive: true },
+  feedDown: { label: 'FEED DOWN', pillLabel: 'FEED DOWN', tone: 'accent', isLive: false },
+  connecting: { label: 'CONNECTING', pillLabel: 'CONNECTING', tone: 'accent', isLive: false },
+  reconnecting: { label: 'RECONNECTING', pillLabel: 'RETRYING', tone: 'accent', isLive: false },
+  offline: { label: 'OFFLINE', pillLabel: 'OFFLINE', tone: 'negative', isLive: false },
+  idle: { label: 'PAUSED', pillLabel: 'PAUSED', tone: 'textMuted', isLive: false },
 } as const satisfies Record<string, ConnectionStatus>;
 
 export function useConnectionStatus(): ConnectionStatus {

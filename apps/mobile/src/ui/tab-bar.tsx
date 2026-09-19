@@ -1,19 +1,21 @@
-import { MaterialCommunityIcons } from '@expo/vector-icons';
 import type { Tabs } from 'expo-router';
 import type { ComponentProps } from 'react';
 import { Pressable, StyleSheet, View } from 'react-native';
 import { useSafeAreaInsets } from 'react-native-safe-area-context';
 import { AppText } from './app-text';
-import { colors, layout, radius, spacing, withAlpha } from './theme';
+import { Icon, type IconName } from './icon';
+import { colors, layout, radius, withAlpha } from './theme';
 
-type IconName = ComponentProps<typeof MaterialCommunityIcons>['name'];
 type TabBarProps = Parameters<NonNullable<ComponentProps<typeof Tabs>['tabBar']>>[0];
 
 const ICONS: Readonly<Record<string, IconName>> = {
-  index: 'chart-line',
-  terminal: 'console',
-  telemetry: 'speedometer',
+  index: 'terminal',
+  markets: 'markets',
+  telemetry: 'telemetry',
+  settings: 'settings',
 };
+
+const ACTIVE_SCALE = 1.1;
 
 export function TabBar({ state, descriptors, navigation }: TabBarProps) {
   const { bottom } = useSafeAreaInsets();
@@ -38,21 +40,16 @@ export function TabBar({ state, descriptors, navigation }: TabBarProps) {
           <Pressable
             key={route.key}
             onPress={onPress}
+            hitSlop={8}
             accessibilityRole="tab"
             accessibilityLabel={title}
             accessibilityState={{ selected: focused }}
-            style={styles.slot}
+            style={[styles.item, focused && styles.itemFocused]}
           >
-            <View style={[styles.item, focused && styles.itemFocused]}>
-              <MaterialCommunityIcons
-                name={ICONS[route.name] ?? 'circle-outline'}
-                size={20}
-                color={colors[tone]}
-              />
-              <AppText variant="label" color={tone}>
-                {title}
-              </AppText>
-            </View>
+            <Icon name={ICONS[route.name] ?? 'terminal'} color={tone} />
+            <AppText variant="label" color={tone}>
+              {title}
+            </AppText>
           </Pressable>
         );
       })}
@@ -63,17 +60,22 @@ export function TabBar({ state, descriptors, navigation }: TabBarProps) {
 const styles = StyleSheet.create({
   bar: {
     flexDirection: 'row',
+    alignItems: 'center',
+    justifyContent: 'space-between',
+    paddingHorizontal: 15,
     backgroundColor: colors.surface,
-    borderTopWidth: StyleSheet.hairlineWidth,
+    borderTopWidth: 1,
     borderTopColor: colors.outline,
   },
-  slot: { flex: 1, alignItems: 'center', justifyContent: 'center' },
   item: {
     alignItems: 'center',
-    gap: 2,
-    paddingHorizontal: spacing.lg,
-    paddingVertical: spacing.xs,
+    justifyContent: 'center',
+    paddingHorizontal: 16,
+    paddingVertical: 4,
     borderRadius: radius.lg,
   },
-  itemFocused: { backgroundColor: withAlpha(colors.positiveStrong, 0.1) },
+  itemFocused: {
+    backgroundColor: withAlpha(colors.positiveStrong, 0.1),
+    transform: [{ scale: ACTIVE_SCALE }],
+  },
 });

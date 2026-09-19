@@ -12,7 +12,7 @@ const styles = StyleSheet.create({
     borderColor: colors.surfaceMuted,
     borderWidth: 1,
     borderRadius: radius.md,
-    padding: spacing.xl,
+    padding: 25,
     gap: spacing.xl,
   },
 });
