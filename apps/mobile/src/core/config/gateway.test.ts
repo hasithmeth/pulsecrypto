@@ -25,6 +25,9 @@ describe('toEndpoints', () => {
     expect(toEndpoints('http://10.0.2.2:4000')).toEqual({
       origin: 'http://10.0.2.2:4000',
       pairsMetaUrl: 'http://10.0.2.2:4000/pairs/meta',
+      signupUrl: 'http://10.0.2.2:4000/auth/signup',
+      loginUrl: 'http://10.0.2.2:4000/auth/login',
+      settingsUrl: 'http://10.0.2.2:4000/me/settings',
       streamUrl: 'ws://10.0.2.2:4000/ws',
     });
     expect(toEndpoints('https://gateway.test').streamUrl).toBe('wss://gateway.test/ws');

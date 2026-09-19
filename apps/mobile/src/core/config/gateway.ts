@@ -1,10 +1,19 @@
-import { PAIRS_META_PATH, STREAM_PATH } from '@pulsecrypto/contracts';
+import {
+  LOGIN_PATH,
+  MY_SETTINGS_PATH,
+  PAIRS_META_PATH,
+  SIGNUP_PATH,
+  STREAM_PATH,
+} from '@pulsecrypto/contracts';
 import Constants from 'expo-constants';
 import { Platform } from 'react-native';
 
 export interface GatewayEndpoints {
   readonly origin: string;
   readonly pairsMetaUrl: string;
+  readonly signupUrl: string;
+  readonly loginUrl: string;
+  readonly settingsUrl: string;
   readonly streamUrl: string;
 }
 
@@ -30,6 +39,9 @@ export function toEndpoints(origin: string): GatewayEndpoints {
   return {
     origin,
     pairsMetaUrl: `${origin}${PAIRS_META_PATH}`,
+    signupUrl: `${origin}${SIGNUP_PATH}`,
+    loginUrl: `${origin}${LOGIN_PATH}`,
+    settingsUrl: `${origin}${MY_SETTINGS_PATH}`,
     streamUrl: `${origin.replace(/^http/, 'ws')}${STREAM_PATH}`,
   };
 }
