@@ -1,6 +1,6 @@
 # PulseCrypto wire protocol
 
-Version 1. The single source of truth is [`packages/contracts`](../packages/contracts/src), a set of zod schemas imported by both the gateway and the app, so the two cannot drift apart silently.
+Version 2. The single source of truth is [`packages/contracts`](../packages/contracts/src), a set of zod schemas imported by both the gateway and the app, so the two cannot drift apart silently.
 
 | Transport | Endpoint          | Purpose                                |
 | --------- | ----------------- | -------------------------------------- |
@@ -8,7 +8,9 @@ Version 1. The single source of truth is [`packages/contracts`](../packages/cont
 | HTTP      | `GET /health`     | Upstream state, client count, counters |
 | WebSocket | `/ws`             | Live market stream and client control  |
 
-All WebSocket frames are JSON text with a `type` discriminant. Numbers are JSON numbers, timestamps are Unix milliseconds.
+WebSocket messages carry a `type` discriminant. Control messages are always JSON text. `market` frames are JSON text by default, or MessagePack binary frames when the client selects `msgpack`, with identical content. Numbers are JSON numbers, timestamps are Unix milliseconds.
+
+Every HTTP error uses one envelope: `{ "error": { "code": "invalid_credentials", "message": "..." } }`. Codes: `validation_failed`, `email_taken`, `invalid_credentials`, `unauthorized`, `rate_limited`, `not_found`, `internal_error`.
 
 ## REST
 
@@ -26,6 +28,7 @@ All WebSocket frames are JSON text with a `type` discriminant. Numbers are JSON 
       "status": "TRADING",
       "priceDecimals": 2,
       "quantityDecimals": 5,
+      "circulatingSupply": 19900000,
       "high24h": 81741,
       "low24h": 78191.81,
       "volume24h": 19234.72941
@@ -34,20 +37,53 @@ All WebSocket frames are JSON text with a `type` discriminant. Numbers are JSON 
 }
 ```
 
-`status` is `TRADING`, `HALT` or `BREAK`. Names, precision and status come from a static registry. The 24 hour figures are live values from Binance's ticker stream and are `null` until the first ticker arrives. The response is sent with `cache-control: no-store`.
+`status` is `TRADING`, `HALT` or `BREAK`. Names, precision and status come from a static registry. The 24 hour figures are live values from Binance's ticker stream and are `null` until the first ticker arrives. `circulatingSupply` is approximate and exists only so the app can show an indicative market capitalisation. The response is sent with `cache-control: no-store`.
+
+### Accounts
+
+`POST /auth/signup` takes `{ email, password, displayName }` (password 8 to 128 characters, name 2 to 40) and returns `201` with a session. `POST /auth/login` takes `{ email, password }`. Both return:
+
+```json
+{
+  "token": "<jwt>",
+  "user": {
+    "id": "fdbefc10-…",
+    "publicId": "488554",
+    "email": "trader@example.com",
+    "displayName": "Pro Trader"
+  }
+}
+```
+
+Emails are trimmed and lower-cased. A wrong password and an unknown email return the same `401 invalid_credentials`. Both routes are rate limited (`429 rate_limited`).
+
+### `GET` / `PUT /me/settings`
+
+Requires `Authorization: Bearer <token>`. `PUT` replaces the whole document and returns it.
+
+```json
+{
+  "favourites": ["ETHUSDT"],
+  "selectedPair": "SOLUSDT",
+  "streamIntervalMs": 250,
+  "binaryProtocol": true,
+  "adaptivePolling": false
+}
+```
 
 ## WebSocket: server to client
 
 ### `hello`
 
-Sent once, immediately after the socket opens. A client should treat the connection as usable only after receiving it.
+Sent once, in reply to a valid `auth`. Nothing is sent before it, and a client should treat the connection as usable only after receiving it.
 
 ```json
 {
   "type": "hello",
-  "protocolVersion": 1,
+  "protocolVersion": 2,
   "serverTime": 1789824705297,
   "intervalMs": 100,
+  "encoding": "json",
   "limits": { "minIntervalMs": 10, "maxIntervalMs": 1000 },
   "pairs": ["BTCUSDT", "ETHUSDT"],
   "upstream": "live"
@@ -112,10 +148,10 @@ Pushed whenever the gateway's connection to Binance changes, and reused as a hea
 
 ### `configured`
 
-Acknowledges `configure` with the interval actually applied.
+Acknowledges `configure` with the interval and encoding actually applied.
 
 ```json
-{ "type": "configured", "intervalMs": 250 }
+{ "type": "configured", "intervalMs": 250, "encoding": "msgpack" }
 ```
 
 ### `pong`
@@ -130,7 +166,7 @@ Acknowledges `configure` with the interval actually applied.
 { "type": "error", "code": "unknown_pair", "message": "Unknown pair NOPEUSDT" }
 ```
 
-Codes: `invalid_message`, `unknown_pair`.
+Codes: `invalid_message`, `unknown_pair`, `unauthenticated`.
 
 ## WebSocket: client to server
 
