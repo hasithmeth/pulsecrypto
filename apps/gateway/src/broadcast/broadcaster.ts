@@ -11,7 +11,7 @@ import type { FastifyBaseLogger } from 'fastify';
 import type { Config } from '../config/env';
 import type { Metrics } from '../observability/metrics';
 import { ClientSession, type StreamSocket } from './client-session';
-import type { FrameEncoder } from './frame-encoder';
+import type { Fragment, FrameEncoder } from './frame-encoder';
 import { commonTick, INTERVAL_QUANTUM_MS, normaliseInterval } from './intervals';
 
 export interface BroadcasterOptions {
@@ -21,6 +21,8 @@ export interface BroadcasterOptions {
   readonly logger: FastifyBaseLogger;
   readonly broadcast: Config['broadcast'];
   readonly clients: Config['clients'];
+  /** Resolves a bearer token to a user id, or undefined when it is invalid or expired. */
+  readonly authenticate: (token: string) => string | undefined;
   readonly now?: () => number;
 }
 
@@ -81,22 +83,16 @@ export class Broadcaster {
       this.now(),
     );
     this.sessions.add(session);
-    this.sendControl(session, {
-      type: 'hello',
-      protocolVersion: PROTOCOL_VERSION,
-      serverTime: this.now(),
-      intervalMs: session.intervalMs,
-      limits: { minIntervalMs: broadcast.minIntervalMs, maxIntervalMs: broadcast.maxIntervalMs },
-      pairs: [...this.pairs],
-      upstream: this.upstream,
-    });
-    this.reschedule();
+    session.authTimer = setTimeout(() => {
+      this.rejectUnauthenticated(session, 'authentication timed out');
+    }, clients.authDeadlineMs);
     logger.info({ client: session.id, clients: this.sessions.size }, 'client connected');
     return session;
   }
 
   disconnect(session: ClientSession): void {
     if (!this.sessions.delete(session)) return;
+    clearTimeout(session.authTimer);
     this.reschedule();
     this.options.logger.info(
       { client: session.id, clients: this.sessions.size },
@@ -112,7 +108,16 @@ export class Broadcaster {
     }
 
     const message = parsed.data;
+    if (session.userId === undefined) {
+      if (message.type === 'auth') this.authenticate(session, message.token);
+      else this.rejectUnauthenticated(session, 'authenticate first');
+      return;
+    }
+
     switch (message.type) {
+      case 'auth':
+        return;
+
       case 'subscribe':
         if (!this.pairs.has(message.pair)) {
           this.rejectMessage(session, 'unknown_pair', `Unknown pair ${message.pair}`);
@@ -130,9 +135,16 @@ export class Broadcaster {
 
       case 'configure': {
         const { minIntervalMs, maxIntervalMs } = this.options.broadcast;
-        session.intervalMs = normaliseInterval(message.intervalMs, minIntervalMs, maxIntervalMs);
-        session.nextDueAt = this.now() + session.intervalMs;
-        this.sendControl(session, { type: 'configured', intervalMs: session.intervalMs });
+        if (message.intervalMs !== undefined) {
+          session.intervalMs = normaliseInterval(message.intervalMs, minIntervalMs, maxIntervalMs);
+          session.nextDueAt = this.now() + session.intervalMs;
+        }
+        session.encoding = message.encoding ?? session.encoding;
+        this.sendControl(session, {
+          type: 'configured',
+          intervalMs: session.intervalMs,
+          encoding: session.encoding,
+        });
         this.reschedule();
         return;
       }
@@ -151,7 +163,8 @@ export class Broadcaster {
     if (status === this.upstream) return;
     this.upstream = status;
     for (const session of this.sessions) {
-      this.sendControl(session, { type: 'status', upstream: status });
+      if (session.userId !== undefined)
+        this.sendControl(session, { type: 'status', upstream: status });
     }
   }
 
@@ -159,7 +172,9 @@ export class Broadcaster {
   tick(): void {
     const now = this.now();
     for (const session of this.sessions) {
-      if (now + DUE_TOLERANCE_MS >= session.nextDueAt) this.flush(session, now);
+      if (session.userId !== undefined && now + DUE_TOLERANCE_MS >= session.nextDueAt) {
+        this.flush(session, now);
+      }
     }
   }
 
@@ -169,21 +184,21 @@ export class Broadcaster {
     if (this.isCongested(session, now)) return;
 
     const { encoder, clients } = this.options;
-    const tickers: string[] = [];
-    const books: string[] = [];
+    const tickers: Fragment[] = [];
+    const books: Fragment[] = [];
     const advanced: [Map<PairSymbol, number>, PairSymbol, number][] = [];
 
     for (const pair of this.pairs) {
       const fragment = encoder.ticker(pair);
       if (fragment && fragment.seq !== session.tickerCursors.get(pair)) {
-        tickers.push(fragment.json);
+        tickers.push(fragment);
         advanced.push([session.tickerCursors, pair, fragment.seq]);
       }
     }
     for (const pair of session.bookSubscriptions) {
       const fragment = encoder.book(pair);
       if (fragment && fragment.seq !== session.bookCursors.get(pair)) {
-        books.push(fragment.json);
+        books.push(fragment);
         advanced.push([session.bookCursors, pair, fragment.seq]);
       }
     }
@@ -195,7 +210,7 @@ export class Broadcaster {
       return;
     }
 
-    if (!this.send(session, encoder.marketFrame(now, tickers, books))) return;
+    if (!this.send(session, encoder.marketFrame(session.encoding, now, tickers, books))) return;
     for (const [cursors, pair, seq] of advanced) cursors.set(pair, seq);
   }
 
@@ -223,6 +238,36 @@ export class Broadcaster {
     return true;
   }
 
+  private authenticate(session: ClientSession, token: string): void {
+    const userId = this.options.authenticate(token);
+    if (userId === undefined) {
+      this.rejectUnauthenticated(session, 'invalid or expired token');
+      return;
+    }
+
+    const { broadcast } = this.options;
+    clearTimeout(session.authTimer);
+    session.userId = userId;
+    session.nextDueAt = this.now();
+    this.sendControl(session, {
+      type: 'hello',
+      protocolVersion: PROTOCOL_VERSION,
+      serverTime: this.now(),
+      intervalMs: session.intervalMs,
+      encoding: session.encoding,
+      limits: { minIntervalMs: broadcast.minIntervalMs, maxIntervalMs: broadcast.maxIntervalMs },
+      pairs: [...this.pairs],
+      upstream: this.upstream,
+    });
+    this.reschedule();
+  }
+
+  private rejectUnauthenticated(session: ClientSession, reason: string): void {
+    this.options.metrics.rejectedClients += 1;
+    session.socket.close(CloseCode.Unauthorized, reason);
+    this.disconnect(session);
+  }
+
   private evict(session: ClientSession, details: Record<string, number>): void {
     this.options.metrics.evictions += 1;
     this.options.logger.warn({ client: session.id, ...details }, 'evicting slow consumer');
@@ -246,7 +291,7 @@ export class Broadcaster {
     this.send(session, JSON.stringify(message));
   }
 
-  private send(session: ClientSession, frame: string): boolean {
+  private send(session: ClientSession, frame: string | Uint8Array): boolean {
     try {
       session.socket.send(frame);
     } catch (error) {
@@ -257,7 +302,8 @@ export class Broadcaster {
     }
     session.lastSentAt = this.now();
     this.options.metrics.framesSent += 1;
-    this.options.metrics.bytesSent += frame.length;
+    this.options.metrics.bytesSent +=
+      typeof frame === 'string' ? Buffer.byteLength(frame) : frame.byteLength;
     return true;
   }
 
@@ -276,7 +322,8 @@ export class Broadcaster {
 
   /** The shared timer runs at the GCD of active intervals, and not at all without clients. */
   private reschedule(): void {
-    const tickMs = commonTick([...this.sessions].map((session) => session.intervalMs));
+    const authenticated = [...this.sessions].filter((session) => session.userId !== undefined);
+    const tickMs = commonTick(authenticated.map((session) => session.intervalMs));
     if (tickMs === this.tickMs) return;
     clearInterval(this.tickTimer);
     this.tickMs = tickMs;

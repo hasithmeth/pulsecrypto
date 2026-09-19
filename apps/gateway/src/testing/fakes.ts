@@ -17,12 +17,12 @@ export const silentLogger: FastifyBaseLogger = {
 
 export class FakeSocket implements StreamSocket {
   bufferedAmount = 0;
-  readonly sent: string[] = [];
+  readonly sent: (string | Uint8Array)[] = [];
   pings = 0;
   terminated = false;
   closed: { code: number; reason: string } | undefined;
 
-  send(data: string): void {
+  send(data: string | Uint8Array): void {
     this.sent.push(data);
   }
 
@@ -38,8 +38,13 @@ export class FakeSocket implements StreamSocket {
     this.terminated = true;
   }
 
+  get binaryFrames(): Uint8Array[] {
+    return this.sent.filter((frame): frame is Uint8Array => typeof frame !== 'string');
+  }
+
   messages<T extends { type: string }>(type: T['type']): T[] {
     return this.sent
+      .filter((frame): frame is string => typeof frame === 'string')
       .map((frame) => JSON.parse(frame) as T)
       .filter((message) => message.type === type);
   }

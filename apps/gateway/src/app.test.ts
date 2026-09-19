@@ -1,5 +1,7 @@
 import type { AddressInfo } from 'node:net';
 import {
+  AuthResponseSchema,
+  CloseCode,
   PairsMetaResponseSchema,
   ServerMessageSchema,
   type MarketMessage,
@@ -11,6 +13,7 @@ import WebSocket from 'ws';
 import { buildApp } from './app';
 import { loadConfig } from './config/env';
 import { rawDataToString } from './lib/raw-data';
+import { InMemoryUserRepository } from './testing/in-memory-user-repository';
 
 const config = loadConfig({
   NODE_ENV: 'test',
@@ -29,8 +32,18 @@ afterEach(async () => {
   app = undefined;
 });
 
+async function createToken(target: FastifyInstance): Promise<string> {
+  const response = await target.inject({
+    method: 'POST',
+    url: '/auth/signup',
+    payload: { email: 'stream@example.com', password: 'correct horse', displayName: 'Streamer' },
+  });
+  return AuthResponseSchema.parse(response.json()).token;
+}
+
 function collect(
   url: string,
+  token: string,
   until: (messages: ServerMessage[]) => boolean,
 ): Promise<ServerMessage[]> {
   return new Promise((resolve, reject) => {
@@ -42,6 +55,7 @@ function collect(
     }, 4_000);
 
     socket.on('open', () => {
+      socket.send(JSON.stringify({ type: 'auth', token }));
       socket.send(JSON.stringify({ type: 'subscribe', channel: 'book', pair: 'ETHUSDT' }));
     });
     socket.on('message', (data: WebSocket.RawData) => {
@@ -58,7 +72,7 @@ function collect(
 
 describe('gateway', () => {
   it('serves metadata for every configured pair', async () => {
-    app = await buildApp(config);
+    app = await buildApp(config, { userRepository: new InMemoryUserRepository() });
     await app.ready();
 
     const response = await app.inject({ method: 'GET', url: '/pairs/meta' });
@@ -75,7 +89,7 @@ describe('gateway', () => {
   });
 
   it('reports health with upstream state and throughput counters', async () => {
-    app = await buildApp(config);
+    app = await buildApp(config, { userRepository: new InMemoryUserRepository() });
     await app.ready();
 
     const response = await app.inject({ method: 'GET', url: '/health' });
@@ -89,7 +103,7 @@ describe('gateway', () => {
   });
 
   it('streams schema-valid frames at the configured cadence under a 2000 msg/s feed', async () => {
-    app = await buildApp(config);
+    app = await buildApp(config, { userRepository: new InMemoryUserRepository() });
     await app.listen({ host: '127.0.0.1', port: 0 });
     const { port } = app.server.address() as AddressInfo;
 
@@ -97,6 +111,7 @@ describe('gateway', () => {
       message.type === 'market';
     const messages = await collect(
       `ws://127.0.0.1:${port}/ws`,
+      await createToken(app),
       (received) => received.filter(isMarket).length >= 10,
     );
 
@@ -114,5 +129,22 @@ describe('gateway', () => {
     expect(books.length).toBeGreaterThan(0);
     expect(new Set(books.map((book) => book.pair))).toEqual(new Set(['ETHUSDT']));
     expect(books[0]?.bids).toHaveLength(20);
+  });
+
+  it('closes the stream with an unauthorised code when the token is forged', async () => {
+    app = await buildApp(config, { userRepository: new InMemoryUserRepository() });
+    await app.listen({ host: '127.0.0.1', port: 0 });
+    const { port } = app.server.address() as AddressInfo;
+
+    const closeCode = await new Promise<number>((resolve, reject) => {
+      const socket = new WebSocket(`ws://127.0.0.1:${port}/ws`);
+      socket.on('open', () => {
+        socket.send(JSON.stringify({ type: 'auth', token: 'forged' }));
+      });
+      socket.on('close', resolve);
+      socket.on('error', reject);
+    });
+
+    expect(closeCode).toBe(CloseCode.Unauthorized);
   });
 });

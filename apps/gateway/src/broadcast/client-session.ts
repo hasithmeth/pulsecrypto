@@ -1,9 +1,9 @@
-import type { PairSymbol } from '@pulsecrypto/contracts';
+import type { Encoding, PairSymbol } from '@pulsecrypto/contracts';
 
 /** The subset of a WebSocket the broadcaster depends on, so tests can substitute a fake. */
 export interface StreamSocket {
   readonly bufferedAmount: number;
-  send(data: string): void;
+  send(data: string | Uint8Array): void;
   ping(): void;
   close(code: number, reason: string): void;
   terminate(): void;
@@ -19,6 +19,10 @@ export class ClientSession {
   readonly tickerCursors = new Map<PairSymbol, number>();
   readonly bookCursors = new Map<PairSymbol, number>();
 
+  /** Undefined until the client proves who it is; unauthenticated sessions receive nothing. */
+  userId: string | undefined;
+  authTimer: NodeJS.Timeout | undefined;
+  encoding: Encoding = 'json';
   nextDueAt: number;
   lastSentAt: number;
   congestedSince: number | undefined;

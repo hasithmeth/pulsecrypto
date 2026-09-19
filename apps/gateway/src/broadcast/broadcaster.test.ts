@@ -1,3 +1,4 @@
+import { decode } from '@msgpack/msgpack';
 import type {
   ConfiguredMessage,
   ErrorMessage,
@@ -26,7 +27,10 @@ const clientLimits: Config['clients'] = {
   heartbeatMs: 3_000,
   pingIntervalMs: 15_000,
   maxInvalidMessages: 3,
+  authDeadlineMs: 5_000,
 };
+
+const VALID_TOKEN = 'valid-token';
 
 function setup(overrides: Partial<Config['clients']> = {}) {
   const clock = new ManualClock();
@@ -40,6 +44,7 @@ function setup(overrides: Partial<Config['clients']> = {}) {
     logger: silentLogger,
     broadcast: { defaultIntervalMs: 100, minIntervalMs: 10, maxIntervalMs: 1_000, bookDepth: 20 },
     clients: { ...clientLimits, ...overrides },
+    authenticate: (token) => (token === VALID_TOKEN ? 'user-1' : undefined),
     now: clock.now,
   });
 
@@ -67,7 +72,15 @@ function setup(overrides: Partial<Config['clients']> = {}) {
     broadcaster.tick();
   };
 
-  return { broadcaster, clock, metrics, publish, advance };
+  /** Connects and authenticates, which is what every streaming client must do first. */
+  const join = (socket: FakeSocket) => {
+    const session = broadcaster.connect(socket);
+    if (!session) throw new Error('expected a session');
+    broadcaster.receive(session, JSON.stringify({ type: 'auth', token: VALID_TOKEN }));
+    return session;
+  };
+
+  return { broadcaster, clock, metrics, publish, advance, join };
 }
 
 const marketFrames = (socket: FakeSocket): MarketMessage[] =>
@@ -82,15 +95,16 @@ afterEach(() => {
 });
 
 describe('Broadcaster', () => {
-  it('greets a new client with the protocol and its limits', () => {
-    const { broadcaster } = setup();
+  it('greets an authenticated client with the protocol and its limits', () => {
+    const { join } = setup();
     const socket = new FakeSocket();
 
-    broadcaster.connect(socket);
+    join(socket);
 
     expect(socket.messages<HelloMessage>('hello')).toEqual([
       expect.objectContaining({
-        protocolVersion: 1,
+        protocolVersion: 2,
+        encoding: 'json',
         intervalMs: 100,
         limits: { minIntervalMs: 10, maxIntervalMs: 1_000 },
         pairs: PAIRS,
@@ -100,9 +114,9 @@ describe('Broadcaster', () => {
   });
 
   it('conflates bursts into one frame per interval carrying only the latest state', () => {
-    const { broadcaster, publish, advance } = setup();
+    const { join, publish, advance } = setup();
     const socket = new FakeSocket();
-    broadcaster.connect(socket);
+    join(socket);
 
     for (let price = 1; price <= 500; price += 1) publish('BTCUSDT', price);
     advance(100);
@@ -113,9 +127,9 @@ describe('Broadcaster', () => {
   });
 
   it('sends only pairs that changed since the client last heard about them', () => {
-    const { broadcaster, publish, advance } = setup();
+    const { join, publish, advance } = setup();
     const socket = new FakeSocket();
-    broadcaster.connect(socket);
+    join(socket);
 
     publish('BTCUSDT', 100);
     publish('ETHUSDT', 10);
@@ -130,10 +144,9 @@ describe('Broadcaster', () => {
   });
 
   it('streams order books only for subscribed pairs', () => {
-    const { broadcaster, publish, advance } = setup();
+    const { broadcaster, join, publish, advance } = setup();
     const socket = new FakeSocket();
-    const session = broadcaster.connect(socket);
-    if (!session) throw new Error('expected a session');
+    const session = join(socket);
 
     publish('BTCUSDT', 100);
     publish('ETHUSDT', 10);
@@ -163,16 +176,15 @@ describe('Broadcaster', () => {
   });
 
   it('honours a per-client interval, clamped and snapped by the server', () => {
-    const { broadcaster, publish, advance } = setup();
+    const { broadcaster, join, publish, advance } = setup();
     const fast = new FakeSocket();
     const slow = new FakeSocket();
-    broadcaster.connect(fast);
-    const slowSession = broadcaster.connect(slow);
-    if (!slowSession) throw new Error('expected a session');
+    join(fast);
+    const slowSession = join(slow);
 
     broadcaster.receive(slowSession, JSON.stringify({ type: 'configure', intervalMs: 254 }));
     expect(slow.messages<ConfiguredMessage>('configured')).toEqual([
-      { type: 'configured', intervalMs: 250 },
+      { type: 'configured', intervalMs: 250, encoding: 'json' },
     ]);
 
     for (let elapsed = 50; elapsed <= 500; elapsed += 50) {
@@ -186,10 +198,9 @@ describe('Broadcaster', () => {
   });
 
   it('runs its timer at the common tick and stops it when the last client leaves', () => {
-    const { broadcaster, publish } = setup();
+    const { broadcaster, join, publish } = setup();
     const socket = new FakeSocket();
-    const session = broadcaster.connect(socket);
-    if (!session) throw new Error('expected a session');
+    const session = join(socket);
     expect(vi.getTimerCount()).toBe(1);
 
     publish('BTCUSDT', 100);
@@ -200,11 +211,100 @@ describe('Broadcaster', () => {
     expect(vi.getTimerCount()).toBe(0);
   });
 
-  describe('slow consumers', () => {
-    it('skips ticks while the socket is congested, then resumes with the newest state', () => {
-      const { broadcaster, publish, advance, metrics } = setup();
+  describe('authentication', () => {
+    it('sends nothing, not even a greeting, until the client authenticates', () => {
+      const { broadcaster, publish, advance } = setup();
       const socket = new FakeSocket();
       broadcaster.connect(socket);
+
+      publish('BTCUSDT', 100);
+      advance(100);
+
+      expect(socket.sent).toEqual([]);
+      expect(vi.getTimerCount()).toBe(1);
+    });
+
+    it('closes the socket when the token is invalid', () => {
+      const { broadcaster, metrics } = setup();
+      const socket = new FakeSocket();
+      const session = broadcaster.connect(socket);
+      if (!session) throw new Error('expected a session');
+
+      broadcaster.receive(session, JSON.stringify({ type: 'auth', token: 'forged' }));
+
+      expect(socket.closed?.code).toBe(CloseCode.Unauthorized);
+      expect(broadcaster.clientCount).toBe(0);
+      expect(metrics.rejectedClients).toBe(1);
+    });
+
+    it('closes the socket when any other message arrives first', () => {
+      const { broadcaster } = setup();
+      const socket = new FakeSocket();
+      const session = broadcaster.connect(socket);
+      if (!session) throw new Error('expected a session');
+
+      broadcaster.receive(
+        session,
+        JSON.stringify({ type: 'subscribe', channel: 'book', pair: 'BTCUSDT' }),
+      );
+
+      expect(socket.closed?.code).toBe(CloseCode.Unauthorized);
+    });
+
+    it('closes clients that never authenticate, and leaves no timer behind', () => {
+      const { broadcaster } = setup();
+      const socket = new FakeSocket();
+      broadcaster.connect(socket);
+
+      vi.advanceTimersByTime(5_000);
+
+      expect(socket.closed?.code).toBe(CloseCode.Unauthorized);
+      expect(broadcaster.clientCount).toBe(0);
+      expect(vi.getTimerCount()).toBe(0);
+    });
+  });
+
+  describe('binary protocol', () => {
+    it('switches market frames to MessagePack that decodes to the same content as JSON', () => {
+      const { broadcaster, join, publish, advance } = setup();
+      const jsonSocket = new FakeSocket();
+      const binarySocket = new FakeSocket();
+      join(jsonSocket);
+      const binarySession = join(binarySocket);
+      broadcaster.receive(
+        binarySession,
+        JSON.stringify({ type: 'subscribe', channel: 'book', pair: 'BTCUSDT' }),
+      );
+      broadcaster.receive(
+        binarySession,
+        JSON.stringify({ type: 'configure', encoding: 'msgpack' }),
+      );
+      expect(binarySocket.messages<ConfiguredMessage>('configured')).toEqual([
+        { type: 'configured', intervalMs: 100, encoding: 'msgpack' },
+      ]);
+
+      publish('BTCUSDT', 100);
+      publish('ETHUSDT', 10);
+      advance(100);
+
+      const [binaryFrame] = binarySocket.binaryFrames;
+      if (!binaryFrame) throw new Error('expected a binary frame');
+      const decoded = decode(binaryFrame) as MarketMessage;
+      const [jsonFrame] = marketFrames(jsonSocket);
+
+      expect(marketFrames(binarySocket)).toEqual([]);
+      expect(decoded.tickers).toEqual(jsonFrame?.tickers);
+      expect(decoded).toMatchObject({ type: 'market', ts: jsonFrame?.ts });
+      expect(decoded.books).toEqual([expect.objectContaining({ pair: 'BTCUSDT', spread: 1 })]);
+      expect(binaryFrame.byteLength).toBeLessThan(JSON.stringify(decoded).length);
+    });
+  });
+
+  describe('slow consumers', () => {
+    it('skips ticks while the socket is congested, then resumes with the newest state', () => {
+      const { join, publish, advance, metrics } = setup();
+      const socket = new FakeSocket();
+      join(socket);
 
       socket.bufferedAmount = 5_000;
       for (let price = 1; price <= 3; price += 1) {
@@ -222,9 +322,9 @@ describe('Broadcaster', () => {
     });
 
     it('evicts a client that stays congested beyond the allowed window', () => {
-      const { broadcaster, publish, advance, metrics } = setup();
+      const { broadcaster, join, publish, advance, metrics } = setup();
       const socket = new FakeSocket();
-      broadcaster.connect(socket);
+      join(socket);
       socket.bufferedAmount = 5_000;
 
       for (let elapsed = 0; elapsed <= 600; elapsed += 100) {
@@ -238,22 +338,24 @@ describe('Broadcaster', () => {
     });
 
     it('evicts immediately once the hard buffer limit is crossed', () => {
-      const { broadcaster, publish, advance } = setup();
+      const { join, publish, advance } = setup();
       const socket = new FakeSocket();
-      broadcaster.connect(socket);
+      join(socket);
 
       socket.bufferedAmount = 10_001;
       publish('BTCUSDT', 1);
       advance(100);
 
       expect(socket.terminated).toBe(true);
-      expect(socket.sent.filter((frame) => frame.includes('"market"'))).toHaveLength(0);
+      expect(marketFrames(socket)).toHaveLength(0);
     });
 
     it('never buffers on behalf of a client, however long it stalls', () => {
-      const { broadcaster, publish, advance } = setup({ maxCongestionMs: Number.MAX_SAFE_INTEGER });
+      const { join, publish, advance } = setup({
+        maxCongestionMs: Number.MAX_SAFE_INTEGER,
+      });
       const socket = new FakeSocket();
-      broadcaster.connect(socket);
+      join(socket);
       socket.bufferedAmount = 5_000;
       const sentBefore = socket.sent.length;
 
@@ -268,10 +370,9 @@ describe('Broadcaster', () => {
 
   describe('protocol handling', () => {
     it('answers pings so clients can measure round-trip time', () => {
-      const { broadcaster } = setup();
+      const { broadcaster, join } = setup();
       const socket = new FakeSocket();
-      const session = broadcaster.connect(socket);
-      if (!session) throw new Error('expected a session');
+      const session = join(socket);
 
       broadcaster.receive(session, JSON.stringify({ type: 'ping', id: 7 }));
 
@@ -281,10 +382,9 @@ describe('Broadcaster', () => {
     });
 
     it('rejects unknown pairs and malformed messages, then closes repeat offenders', () => {
-      const { broadcaster } = setup();
+      const { broadcaster, join } = setup();
       const socket = new FakeSocket();
-      const session = broadcaster.connect(socket);
-      if (!session) throw new Error('expected a session');
+      const session = join(socket);
 
       broadcaster.receive(
         session,
@@ -315,9 +415,9 @@ describe('Broadcaster', () => {
 
   describe('liveness', () => {
     it('pushes upstream status changes to every client', () => {
-      const { broadcaster } = setup();
+      const { broadcaster, join } = setup();
       const socket = new FakeSocket();
-      broadcaster.connect(socket);
+      join(socket);
 
       broadcaster.setUpstreamStatus('live');
       broadcaster.setUpstreamStatus('live');
@@ -330,9 +430,9 @@ describe('Broadcaster', () => {
     });
 
     it('sends a heartbeat when the market is quiet so clients can detect dead links', () => {
-      const { broadcaster, advance } = setup();
+      const { join, advance } = setup();
       const socket = new FakeSocket();
-      broadcaster.connect(socket);
+      join(socket);
 
       for (let elapsed = 0; elapsed < 3_000; elapsed += 100) advance(100);
 
@@ -340,12 +440,11 @@ describe('Broadcaster', () => {
     });
 
     it('terminates clients that stop answering protocol pings', () => {
-      const { broadcaster } = setup();
+      const { broadcaster, join } = setup();
       const responsive = new FakeSocket();
       const silent = new FakeSocket();
-      const responsiveSession = broadcaster.connect(responsive);
-      broadcaster.connect(silent);
-      if (!responsiveSession) throw new Error('expected a session');
+      const responsiveSession = join(responsive);
+      join(silent);
       broadcaster.start();
 
       vi.advanceTimersByTime(15_000);
@@ -359,9 +458,9 @@ describe('Broadcaster', () => {
     });
 
     it('closes every client with a shutdown code when stopped', () => {
-      const { broadcaster } = setup();
+      const { broadcaster, join } = setup();
       const socket = new FakeSocket();
-      broadcaster.connect(socket);
+      join(socket);
 
       broadcaster.stop();
 

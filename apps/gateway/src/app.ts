@@ -1,9 +1,16 @@
+import { join } from 'node:path';
+import jwt from '@fastify/jwt';
 import Fastify, { LogController, type FastifyInstance, type FastifyServerOptions } from 'fastify';
+import { AuthService } from './auth/auth-service';
+import { FileUserRepository } from './auth/file-user-repository';
+import type { UserRepository } from './auth/user-repository';
 import { Broadcaster } from './broadcast/broadcaster';
 import { FrameEncoder } from './broadcast/frame-encoder';
 import type { Config } from './config/env';
 import { MarketState } from './domain/market-state';
 import { PairRegistry } from './domain/pairs';
+import { authRoutes } from './http/auth-routes';
+import { registerErrorHandling } from './http/error-handler';
 import { healthRoute } from './http/health-route';
 import { pairsMetaRoute } from './http/pairs-meta-route';
 import { streamRoute } from './http/stream-route';
@@ -14,8 +21,11 @@ import { Metrics } from './observability/metrics';
 
 export interface AppOverrides {
   readonly createFeed?: (sink: MarketFeedSink, registry: PairRegistry) => MarketFeed;
+  readonly userRepository?: UserRepository;
   readonly now?: () => number;
 }
+
+const MAX_BODY_BYTES = 16 * 1024;
 
 const loggerOptions = (config: Config): FastifyServerOptions['logger'] => {
   if (config.env === 'test') return false;
@@ -37,7 +47,18 @@ export async function buildApp(
   const app = Fastify({
     logger: loggerOptions(config),
     logController: new LogController({ disableRequestLogging: true }),
+    bodyLimit: MAX_BODY_BYTES,
   });
+  registerErrorHandling(app);
+  await app.register(jwt, { secret: config.auth.secret });
+  if (config.auth.usesDevelopmentSecret) {
+    app.log.warn('AUTH_SECRET is not set: using the built-in development secret');
+  }
+
+  const users =
+    overrides.userRepository ??
+    (await FileUserRepository.open(join(config.auth.dataDir, 'users.json')));
+  const auth = new AuthService(users);
 
   const registry = new PairRegistry(config.pairs);
   const state = new MarketState(registry.symbols);
@@ -49,6 +70,13 @@ export async function buildApp(
     logger: app.log,
     broadcast: config.broadcast,
     clients: config.clients,
+    authenticate: (token) => {
+      try {
+        return app.jwt.verify<{ sub: string }>(token).sub;
+      } catch {
+        return undefined;
+      }
+    },
     now,
   });
 
@@ -110,6 +138,7 @@ export async function buildApp(
   });
 
   await app.register(streamRoute, { broadcaster });
+  await app.register(authRoutes, { auth, config: config.auth });
   await app.register(pairsMetaRoute, { registry, state, now });
   await app.register(healthRoute, { broadcaster, metrics });
 
