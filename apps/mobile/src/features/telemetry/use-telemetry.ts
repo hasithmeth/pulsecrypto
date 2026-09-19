@@ -1,35 +1,38 @@
+import AsyncStorage from '@react-native-async-storage/async-storage';
 import { useFocusEffect } from 'expo-router';
 import { useCallback, useState } from 'react';
+import { useConnectionStore } from '@/core/stream/connection-store';
 import { frameCoalescer, marketStream } from '@/core/stream/market-stream';
 
 export interface TelemetrySample {
   readonly fps: number;
-  readonly lowestFps: number | null;
-  readonly eventLoopLagMs: number;
   readonly messagesPerSecond: number;
-  readonly kilobytesPerSecond: number;
   readonly commitsPerSecond: number;
   readonly coalescedPerSecond: number;
   readonly heapMegabytes: number | null;
+  /** Recent heap readings, oldest first, for the memory graph. */
+  readonly heapHistory: readonly number[];
+  readonly averagePingMs: number | null;
+  readonly storageBytes: number | null;
 }
 
 const EMPTY_SAMPLE: TelemetrySample = {
   fps: 0,
-  lowestFps: null,
-  eventLoopLagMs: 0,
   messagesPerSecond: 0,
-  kilobytesPerSecond: 0,
   commitsPerSecond: 0,
   coalescedPerSecond: 0,
   heapMegabytes: null,
+  heapHistory: [],
+  averagePingMs: null,
+  storageBytes: null,
 };
 
 const SAMPLE_INTERVAL_MS = 1_000;
-const LAG_PROBE_INTERVAL_MS = 50;
+const HISTORY_LENGTH = 11;
+const PING_WINDOW = 10;
 
 const readCounters = () => ({
   messages: marketStream.counters.messages,
-  bytes: marketStream.counters.bytes,
   commits: frameCoalescer.counters.commits,
   coalesced: frameCoalescer.counters.coalescedFrames,
 });
@@ -39,14 +42,22 @@ function readHeapMegabytes(): number | null {
   return memory?.usedJSHeapSize ? memory.usedJSHeapSize / 1_048_576 : null;
 }
 
+async function measureStorageBytes(): Promise<number> {
+  const keys = await AsyncStorage.getAllKeys();
+  const entries = await AsyncStorage.multiGet(keys);
+  return entries.reduce((total, [key, value]) => total + key.length + (value?.length ?? 0), 0);
+}
+
+const average = (values: readonly number[]): number | null =>
+  values.length === 0
+    ? null
+    : Math.round(values.reduce((sum, value) => sum + value, 0) / values.length);
+
 /**
  * Samples once a second, and only while the screen is focused, so measuring the
- * app does not tax it the rest of the time.
- *
- * Two signals are kept apart on purpose. Frame rate (requestAnimationFrame) is
- * capped by the device's display pipeline, so a slow emulator reads low even when
- * idle. Event-loop lag (how late a timer fires) isolates the JS thread: it only
- * grows when our own work is starving it.
+ * app does not tax it the rest of the time. Frame rate counts
+ * requestAnimationFrame callbacks, which reflects how often the JS thread is
+ * free to run.
  */
 export function useTelemetry(): { sample: TelemetrySample; reset: () => void } {
   const [sample, setSample] = useState(EMPTY_SAMPLE);
@@ -59,16 +70,14 @@ export function useTelemetry(): { sample: TelemetrySample; reset: () => void } {
         frameHandle = requestAnimationFrame(countFrame);
       });
 
-      let worstLagMs = 0;
-      let probeDueAt = Date.now() + LAG_PROBE_INTERVAL_MS;
-      const lagProbe = setInterval(() => {
-        const now = Date.now();
-        worstLagMs = Math.max(worstLagMs, now - probeDueAt);
-        probeDueAt = now + LAG_PROBE_INTERVAL_MS;
-      }, LAG_PROBE_INTERVAL_MS);
-
       let previous = readCounters();
       let previousAt = Date.now();
+      const pings: number[] = [];
+      let lastPing: number | null = null;
+
+      void measureStorageBytes().then((storageBytes) => {
+        setSample((last) => ({ ...last, storageBytes }));
+      });
 
       const timer = setInterval(() => {
         const now = Date.now();
@@ -77,24 +86,33 @@ export function useTelemetry(): { sample: TelemetrySample; reset: () => void } {
         const rate = (key: keyof typeof current): number =>
           Math.round((current[key] - previous[key]) / seconds);
 
+        const ping = useConnectionStore.getState().latencyMs;
+        if (ping !== null && ping !== lastPing) {
+          lastPing = ping;
+          pings.push(ping);
+          if (pings.length > PING_WINDOW) pings.shift();
+        }
+
         // Computed eagerly: a state updater runs later, after the baseline below has moved on.
+        const heapMegabytes = readHeapMegabytes();
         const measured = {
           fps: Math.round(frames / seconds),
-          eventLoopLagMs: Math.max(0, Math.round(worstLagMs)),
           messagesPerSecond: rate('messages'),
-          kilobytesPerSecond: Math.round((rate('bytes') / 1_024) * 10) / 10,
           commitsPerSecond: rate('commits'),
           coalescedPerSecond: rate('coalesced'),
-          heapMegabytes: readHeapMegabytes(),
+          heapMegabytes,
+          averagePingMs: average(pings),
         };
         setSample((last) => ({
+          ...last,
           ...measured,
-          lowestFps:
-            last.lowestFps === null ? measured.fps : Math.min(last.lowestFps, measured.fps),
+          heapHistory:
+            heapMegabytes === null
+              ? last.heapHistory
+              : [...last.heapHistory, heapMegabytes].slice(-HISTORY_LENGTH),
         }));
 
         frames = 0;
-        worstLagMs = 0;
         previous = current;
         previousAt = now;
       }, SAMPLE_INTERVAL_MS);
@@ -102,13 +120,12 @@ export function useTelemetry(): { sample: TelemetrySample; reset: () => void } {
       return () => {
         cancelAnimationFrame(frameHandle);
         clearInterval(timer);
-        clearInterval(lagProbe);
       };
     }, []),
   );
 
   const reset = (): void => {
-    setSample((last) => ({ ...last, lowestFps: null }));
+    setSample((last) => ({ ...last, heapHistory: [] }));
   };
 
   return { sample, reset };
