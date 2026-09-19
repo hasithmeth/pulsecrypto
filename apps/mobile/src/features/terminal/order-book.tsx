@@ -21,8 +21,8 @@ export function OrderBook({ pair }: { pair: PairMeta }) {
 
   return (
     <View style={styles.book}>
-      <BookSection side="bid" title="BIDS" levels={bids} scale={scale} pair={pair} />
-      <BookSection side="ask" title="ASKS" levels={asks} scale={scale} pair={pair} />
+      <BookSection side="bid" title="Bids" levels={bids} scale={scale} pair={pair} />
+      <BookSection side="ask" title="Asks" levels={asks} scale={scale} pair={pair} />
     </View>
   );
 }
@@ -39,13 +39,13 @@ function BookSection({ side, title, levels, scale, pair }: BookSectionProps) {
   return (
     <View style={styles.section} accessibilityLabel={`${title} order book`}>
       <View style={styles.header}>
-        <AppText variant="label" color="textSecondary" style={styles.headerPrice}>
-          {title} · PRICE ({pair.quote})
+        <AppText variant="label" color="textSecondary">
+          PRICE ({pair.quote})
         </AppText>
-        <AppText variant="label" color="textSecondary" style={styles.headerNumber}>
+        <AppText variant="label" color="textSecondary">
           AMOUNT ({pair.base})
         </AppText>
-        <AppText variant="label" color="textSecondary" style={styles.headerNumber}>
+        <AppText variant="label" color="textSecondary">
           TOTAL
         </AppText>
       </View>
@@ -75,19 +75,15 @@ function BookSection({ side, title, levels, scale, pair }: BookSectionProps) {
 
 const styles = StyleSheet.create({
   book: { backgroundColor: colors.background },
-  section: {
-    padding: spacing.xs,
-    borderBottomWidth: StyleSheet.hairlineWidth,
-    borderBottomColor: colors.outline,
-  },
+  section: { padding: spacing.xs, borderBottomWidth: 1, borderBottomColor: colors.outline },
   header: {
     flexDirection: 'row',
+    justifyContent: 'space-between',
     paddingHorizontal: spacing.sm,
-    paddingVertical: spacing.xs,
+    paddingTop: 4,
+    paddingBottom: 5,
     backgroundColor: withAlpha(colors.surfaceOverlay, 0.5),
-    borderBottomWidth: StyleSheet.hairlineWidth,
+    borderBottomWidth: 1,
     borderBottomColor: colors.outline,
   },
-  headerPrice: { flex: 1 },
-  headerNumber: { flex: 1, textAlign: 'right' },
 });

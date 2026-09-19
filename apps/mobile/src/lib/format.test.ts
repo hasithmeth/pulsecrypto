@@ -40,10 +40,10 @@ describe('formatSpreadPercent', () => {
 
 describe('formatCompact', () => {
   it.each([
-    [950, '950.00'],
-    [17_040, '17.04K'],
-    [2_500_000, '2.50M'],
-    [1_200_000_000_000, '1.20T'],
+    [950, '950.0'],
+    [1_240, '1.2k'],
+    [2_500_000, '2.5M'],
+    [1_200_000_000_000, '1.2T'],
   ])('formats %d as %s', (value, expected) => {
     expect(formatCompact(value)).toBe(expected);
   });

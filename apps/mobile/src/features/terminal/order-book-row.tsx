@@ -55,10 +55,10 @@ export const OrderBookRow = memo(function OrderBookRow({
       >
         {price}
       </AppText>
-      <AppText variant="mono" style={styles.number} numberOfLines={1}>
+      <AppText variant="mono" style={styles.quantity} numberOfLines={1}>
         {quantity}
       </AppText>
-      <AppText variant="mono" color="textSecondary" style={styles.number} numberOfLines={1}>
+      <AppText variant="mono" color="textSecondary" style={styles.total} numberOfLines={1}>
         {total}
       </AppText>
     </View>
@@ -76,5 +76,6 @@ const styles = StyleSheet.create({
   bidBar: { backgroundColor: withAlpha(colors.positive, 0.1), transformOrigin: 'right' },
   askBar: { backgroundColor: withAlpha(colors.negative, 0.1), transformOrigin: 'left' },
   price: { flex: 1 },
-  number: { flex: 1, textAlign: 'right' },
+  quantity: { flex: 1, textAlign: 'center' },
+  total: { flex: 1, textAlign: 'right' },
 });

@@ -27,13 +27,14 @@ const COMPACT_UNITS = [
   { threshold: 1e12, suffix: 'T' },
   { threshold: 1e9, suffix: 'B' },
   { threshold: 1e6, suffix: 'M' },
-  { threshold: 1e3, suffix: 'K' },
+  { threshold: 1e3, suffix: 'k' },
 ] as const;
 
+/** One decimal and a unit suffix, as the design writes them: `1.2T`, `1.2k`. */
 export function formatCompact(value: number): string {
   if (!Number.isFinite(value)) return '--';
   const unit = COMPACT_UNITS.find(({ threshold }) => Math.abs(value) >= threshold);
-  return unit ? `${(value / unit.threshold).toFixed(2)}${unit.suffix}` : value.toFixed(2);
+  return unit ? `${(value / unit.threshold).toFixed(1)}${unit.suffix}` : value.toFixed(1);
 }
 
 const pad = (value: number, length = 2): string => String(value).padStart(length, '0');

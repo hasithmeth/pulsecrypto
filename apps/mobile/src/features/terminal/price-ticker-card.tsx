@@ -1,13 +1,14 @@
 import type { PairMeta } from '@pulsecrypto/contracts';
-import { StyleSheet, View } from 'react-native';
-import { useTicker } from '@/core/stream/market-store';
-import { formatCompact, formatDecimal, formatPercent } from '@/lib/format';
+import { ScrollView, StyleSheet, View } from 'react-native';
+import { useBook, useTicker } from '@/core/stream/market-store';
+import { formatClock, formatCompact, formatDecimal, formatPercent } from '@/lib/format';
 import { AppText } from '@/ui/app-text';
 import { FlashingPrice } from '@/ui/flashing-price';
 import { colors, spacing } from '@/ui/theme';
 
 export function PriceTickerCard({ pair }: { pair: PairMeta }) {
   const ticker = useTicker(pair.symbol);
+  const book = useBook(pair.symbol);
   const rising = (ticker?.change24hPct ?? 0) >= 0;
   const tone = ticker ? (rising ? 'positive' : 'negative') : 'textMuted';
   const money = (value: number | null | undefined): string =>
@@ -15,29 +16,42 @@ export function PriceTickerCard({ pair }: { pair: PairMeta }) {
 
   return (
     <View style={styles.card}>
-      <AppText variant="label" color="textSecondary">
-        LAST PRICE
-      </AppText>
-      <View style={styles.priceRow}>
-        <FlashingPrice
-          value={ticker?.price}
-          text={money(ticker?.price)}
-          variant="display"
-          restingColor={tone}
-        />
-        <AppText variant="mono" color={tone} style={styles.change} numberOfLines={1}>
-          {ticker ? `${rising ? '▲' : '▼'} ${formatPercent(ticker.change24hPct)}` : '--'}
+      <View style={styles.price}>
+        <AppText variant="label" color="textSecondary">
+          LAST PRICE
         </AppText>
+        <View style={styles.priceRow}>
+          <FlashingPrice
+            value={ticker?.price}
+            text={money(ticker?.price)}
+            variant="display"
+            restingColor={tone}
+          />
+          <AppText variant="mono" color={tone} numberOfLines={1}>
+            {ticker ? `${rising ? '▲' : '▼'} ${formatPercent(ticker.change24hPct)}` : '--'}
+          </AppText>
+        </View>
       </View>
 
-      <View style={styles.stats}>
+      {/* The design's stats row is a horizontal scroller. The first three cells are
+          the designed ones; the rest carry values the brief requires and sit off-screen. */}
+      <ScrollView
+        horizontal
+        showsHorizontalScrollIndicator={false}
+        contentContainerStyle={styles.stats}
+        accessibilityLabel="Market statistics"
+      >
         <Stat label="24H HIGH" value={money(ticker?.high24h ?? pair.high24h)} />
         <Stat label="24H LOW" value={money(ticker?.low24h ?? pair.low24h)} />
         <Stat
-          label={`24H VOL (${pair.base})`}
-          value={formatCompact(ticker?.volume24h ?? pair.volume24h ?? Number.NaN)}
+          label="MARKET CAP"
+          value={ticker ? formatCompact(ticker.price * pair.circulatingSupply) : '--'}
         />
-      </View>
+        <Stat label="SPREAD" value={book ? formatDecimal(book.spread, pair.priceDecimals) : '--'} />
+        <Stat label="BUY PRESSURE" value={book ? `${book.buyPressure.toFixed(1)}%` : '--'} />
+        <Stat label="SELL PRESSURE" value={book ? `${book.sellPressure.toFixed(1)}%` : '--'} />
+        <Stat label="LAST UPDATED" value={book ? formatClock(book.ts, true) : '--'} />
+      </ScrollView>
     </View>
   );
 }
@@ -57,13 +71,14 @@ function Stat({ label, value }: { label: string; value: string }) {
 
 const styles = StyleSheet.create({
   card: {
-    padding: spacing.lg,
-    gap: spacing.xs,
+    paddingTop: spacing.lg,
+    paddingBottom: 17,
     backgroundColor: colors.surface,
-    borderBottomWidth: StyleSheet.hairlineWidth,
+    borderBottomWidth: 1,
     borderBottomColor: colors.outline,
   },
-  priceRow: { flexDirection: 'row', alignItems: 'flex-end', gap: spacing.sm },
-  change: { paddingBottom: 6 },
-  stats: { flexDirection: 'row', gap: spacing.xl, marginTop: spacing.sm },
+  price: { paddingHorizontal: spacing.lg, paddingTop: 8.5, gap: spacing.xs },
+  // Fixed to the design's 39pt row: Android's baseline alignment would otherwise shrink it.
+  priceRow: { height: 39, flexDirection: 'row', alignItems: 'baseline', gap: spacing.sm },
+  stats: { flexDirection: 'row', gap: spacing.xl, paddingHorizontal: spacing.lg },
 });
