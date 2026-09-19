@@ -25,6 +25,8 @@
     "@eslint/js": "catalog:",
     "eslint": "catalog:",
     "eslint-config-prettier": "catalog:",
+    "eslint-plugin-expo": "^1.1.0",
+    "eslint-plugin-react-hooks": "^7.1.1",
     "globals": "catalog:",
     "prettier": "catalog:",
     "turbo": "catalog:",
