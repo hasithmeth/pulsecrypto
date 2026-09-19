@@ -83,16 +83,16 @@ export function AuthScreen({ mode }: { mode: Mode }) {
   };
 
   return (
+    // The top inset belongs to the container, not the scroll content: when the
+    // keyboard pushes the form up, it must scroll out below the status bar rather
+    // than slide underneath the clock.
     <KeyboardAvoidingView
-      style={styles.screen}
+      style={[styles.screen, { paddingTop: insets.top }]}
       behavior={Platform.OS === 'ios' ? 'padding' : undefined}
     >
       <ScrollView
         keyboardShouldPersistTaps="handled"
-        contentContainerStyle={[
-          styles.content,
-          { paddingTop: insets.top + spacing.xxl, paddingBottom: insets.bottom + spacing.xl },
-        ]}
+        contentContainerStyle={[styles.content, { paddingBottom: insets.bottom + spacing.xl }]}
       >
         <View style={styles.brand}>
           <View style={styles.logo}>
@@ -170,7 +170,12 @@ export function AuthScreen({ mode }: { mode: Mode }) {
 
 const styles = StyleSheet.create({
   screen: { flex: 1, backgroundColor: colors.backgroundDeep },
-  content: { flexGrow: 1, paddingHorizontal: spacing.xl, gap: spacing.xxl },
+  content: {
+    flexGrow: 1,
+    paddingTop: spacing.xxl,
+    paddingHorizontal: spacing.xl,
+    gap: spacing.xxl,
+  },
   brand: { flexDirection: 'row', alignItems: 'center', gap: spacing.md },
   logo: {
     width: 48,
