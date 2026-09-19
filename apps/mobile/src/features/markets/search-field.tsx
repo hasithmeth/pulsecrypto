@@ -1,7 +1,7 @@
 import { MaterialCommunityIcons } from '@expo/vector-icons';
 import { StyleSheet, TextInput, View } from 'react-native';
 import { IconButton } from '@/ui/icon-button';
-import { colors, spacing, typography } from '@/ui/theme';
+import { colors, fonts, spacing } from '@/ui/theme';
 
 interface SearchFieldProps {
   readonly value: string;
@@ -52,5 +52,11 @@ const styles = StyleSheet.create({
     borderWidth: 1,
     borderColor: colors.outline,
   },
-  input: { ...typography.mono, flex: 1, color: colors.textPrimary, paddingVertical: 0 },
+  input: {
+    flex: 1,
+    fontFamily: fonts.mono,
+    fontSize: 14,
+    color: colors.textPrimary,
+    paddingVertical: 0,
+  },
 });

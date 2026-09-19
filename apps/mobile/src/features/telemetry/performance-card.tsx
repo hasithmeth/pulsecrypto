@@ -3,7 +3,7 @@ import Svg, { Circle } from 'react-native-svg';
 import { AppText } from '@/ui/app-text';
 import { Card } from '@/ui/card';
 import { Icon } from '@/ui/icon';
-import { colors, radius, spacing, typography, withAlpha, type ColorToken } from '@/ui/theme';
+import { colors, radius, spacing, withAlpha, type ColorToken } from '@/ui/theme';
 import { MemoryGraph } from './memory-graph';
 import type { TelemetrySample } from './use-telemetry';
 
@@ -104,9 +104,7 @@ export function PerformanceCard({ sample, onReset }: PerformanceCardProps) {
                 fill="none"
               />
             </Svg>
-            <AppText variant="monoDisplay" style={styles.gaugeValue}>
-              {sample.fps}
-            </AppText>
+            <AppText variant="monoDisplayTight">{sample.fps}</AppText>
             <AppText variant="label" color="textSecondary">
               FPS
             </AppText>
@@ -151,13 +149,12 @@ const styles = StyleSheet.create({
     borderRadius: radius.xs,
     backgroundColor: colors.surfaceBright,
   },
-  badge: { paddingHorizontal: 13, paddingVertical: 5, borderRadius: radius.xs, borderWidth: 1 },
+  badge: { paddingHorizontal: 12, paddingVertical: 4, borderRadius: radius.xs, borderWidth: 1 },
   panels: { gap: spacing.xxl },
   panel: { borderRadius: radius.sm, backgroundColor: colors.surface },
   gaugePanel: { alignItems: 'center', gap: spacing.lg, padding: spacing.lg },
   ring: { width: RING_SIZE, height: RING_SIZE, alignItems: 'center', justifyContent: 'center' },
   ringSvg: { position: 'absolute', transform: [{ rotate: '-90deg' }] },
-  gaugeValue: { lineHeight: typography.monoDisplay.fontSize },
   counterPanel: { height: 158, alignItems: 'center', justifyContent: 'center', gap: spacing.sm },
   counterValue: { alignItems: 'center' },
   memoryPanel: { padding: spacing.lg, gap: spacing.lg },

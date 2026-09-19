@@ -54,9 +54,11 @@ function MicroCard({ icon, tone, title, detail }: MicroCardProps) {
         <Icon name={icon} color={tone} />
       </View>
       <View style={styles.text}>
-        <AppText variant="label" color={tone} style={styles.title}>
-          {title}
-        </AppText>
+        <View style={styles.title}>
+          <AppText variant="label" color={tone}>
+            {title}
+          </AppText>
+        </View>
         <AppText variant="caption" color="textSecondary" numberOfLines={1}>
           {detail}
         </AppText>
@@ -66,7 +68,7 @@ function MicroCard({ icon, tone, title, detail }: MicroCardProps) {
 }
 
 const styles = StyleSheet.create({
-  card: { flexDirection: 'row', alignItems: 'center', gap: spacing.lg, padding: 17 },
+  card: { flexDirection: 'row', alignItems: 'center', gap: spacing.lg, padding: spacing.lg },
   tile: {
     width: 48,
     height: 48,

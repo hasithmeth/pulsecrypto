@@ -1,4 +1,4 @@
-import type { TextStyle } from 'react-native';
+import { Platform, type TextStyle } from 'react-native';
 
 export const colors = {
   background: '#0B1420',
@@ -48,42 +48,75 @@ export const fonts = {
   monoBold: 'JetBrainsMono_700Bold',
 } as const;
 
-// The design sets line height equal to font size for labels and numbers. Android
-// pads text by default, which would push those glyphs off-centre and clip them.
-const tight: TextStyle = { includeFontPadding: false };
+/** Natural line height as a multiple of font size, read from each font's hhea table. */
+const NATURAL_LINE = { inter: 1.21, hanken: 1.303, jetbrains: 1.32 } as const;
+
+/**
+ * The design often sets a line height at or below the font size (labels 11/11,
+ * numbers 14/14), which the two platforms treat differently.
+ *
+ * Android honours the tight box once its default font padding is switched off.
+ * iOS centres glyphs only when the line box is at least the font's natural
+ * height; in a shorter box all the overflow goes upward, so text rides up into
+ * whatever sits above it. There the text keeps its natural line box and negative
+ * margins shrink its layout footprint back to the design's, which leaves the
+ * glyphs centred in exactly the space Figma gives them.
+ */
+function line(fontSize: number, lineHeight: number, naturalRatio: number): TextStyle {
+  const natural = Math.ceil(fontSize * naturalRatio);
+  if (Platform.OS !== 'ios' || lineHeight >= natural)
+    return { lineHeight, includeFontPadding: false };
+  return { lineHeight: natural, marginVertical: (lineHeight - natural) / 2 };
+}
 
 /** Sizes, weights, line heights and tracking are taken verbatim from the Figma text styles. */
 export const typography = {
   display: {
     fontFamily: fonts.headlineBold,
     fontSize: 32,
-    lineHeight: 38.4,
     letterSpacing: -0.64,
     fontVariant: ['tabular-nums'],
-    ...tight,
+    ...line(32, 38.4, NATURAL_LINE.hanken),
   },
-  screenTitle: { fontFamily: fonts.headlineSemiBold, fontSize: 24, lineHeight: 31.2 },
-  headerTitle: { fontFamily: fonts.headlineBold, fontSize: 20, lineHeight: 28 },
-  cardTitle: { fontFamily: fonts.headlineSemiBold, fontSize: 20, lineHeight: 28 },
-  body: { fontFamily: fonts.body, fontSize: 14, lineHeight: 21 },
-  caption: { fontFamily: fonts.body, fontSize: 12, lineHeight: 16.8 },
+  screenTitle: {
+    fontFamily: fonts.headlineSemiBold,
+    fontSize: 24,
+    ...line(24, 31.2, NATURAL_LINE.hanken),
+  },
+  headerTitle: {
+    fontFamily: fonts.headlineBold,
+    fontSize: 20,
+    ...line(20, 28, NATURAL_LINE.hanken),
+  },
+  cardTitle: {
+    fontFamily: fonts.headlineSemiBold,
+    fontSize: 20,
+    ...line(20, 28, NATURAL_LINE.hanken),
+  },
+  body: { fontFamily: fonts.body, fontSize: 14, ...line(14, 21, NATURAL_LINE.inter) },
+  caption: { fontFamily: fonts.body, fontSize: 12, ...line(12, 16.8, NATURAL_LINE.inter) },
   label: {
     fontFamily: fonts.bodyBold,
     fontSize: 11,
-    lineHeight: 11,
     letterSpacing: 0.55,
-    ...tight,
+    ...line(11, 11, NATURAL_LINE.inter),
   },
   monoDisplay: {
     fontFamily: fonts.monoBold,
     fontSize: 32,
-    lineHeight: 38.4,
     letterSpacing: -0.64,
-    ...tight,
+    ...line(32, 38.4, NATURAL_LINE.jetbrains),
   },
-  monoLg: { fontFamily: fonts.mono, fontSize: 16, lineHeight: 16, ...tight },
-  mono: { fontFamily: fonts.mono, fontSize: 14, lineHeight: 14, ...tight },
-  monoSm: { fontFamily: fonts.monoRegular, fontSize: 10, lineHeight: 10, ...tight },
+  /** The gauge's number: same face as monoDisplay on the design's 32pt line. */
+  monoDisplayTight: {
+    fontFamily: fonts.monoBold,
+    fontSize: 32,
+    letterSpacing: -0.64,
+    ...line(32, 32, NATURAL_LINE.jetbrains),
+  },
+  monoLg: { fontFamily: fonts.mono, fontSize: 16, ...line(16, 16, NATURAL_LINE.jetbrains) },
+  mono: { fontFamily: fonts.mono, fontSize: 14, ...line(14, 14, NATURAL_LINE.jetbrains) },
+  monoSm: { fontFamily: fonts.monoRegular, fontSize: 10, ...line(10, 10, NATURAL_LINE.jetbrains) },
 } as const satisfies Record<string, TextStyle>;
 
 export type TypographyVariant = keyof typeof typography;

@@ -1,6 +1,6 @@
 import { StyleSheet, TextInput, View, type TextInputProps } from 'react-native';
 import { AppText } from './app-text';
-import { colors, spacing, typography } from './theme';
+import { colors, fonts, spacing } from './theme';
 
 interface TextFieldProps extends Omit<TextInputProps, 'style' | 'placeholderTextColor'> {
   readonly label: string;
@@ -33,8 +33,8 @@ export function TextField({ label, error, ...input }: TextFieldProps) {
 const styles = StyleSheet.create({
   field: { gap: spacing.sm },
   input: {
-    ...typography.mono,
-    lineHeight: undefined,
+    fontFamily: fonts.mono,
+    fontSize: 14,
     height: 48,
     paddingHorizontal: spacing.lg,
     paddingVertical: 0,
