@@ -27,6 +27,12 @@ export const withAlpha = (hex: string, alpha: number): string => {
   return `rgba(${channel(1)}, ${channel(3)}, ${channel(5)}, ${alpha})`;
 };
 
+export const refreshIndicator = {
+  tintColor: colors.positive,
+  colors: [colors.positive],
+  progressBackgroundColor: colors.surface,
+};
+
 export const spacing = { xs: 4, sm: 8, md: 12, lg: 16, xl: 24, xxl: 32 } as const;
 
 export const radius = { xs: 2, sm: 4, md: 8, lg: 12, pill: 999 } as const;

@@ -13,34 +13,25 @@ import { ApiError } from '@/core/api/http-client';
 import { useUserSettingsStore } from '@/features/settings/user-settings-store';
 import { AppHeader } from '@/ui/app-header';
 import { AppText } from '@/ui/app-text';
-import { colors, spacing } from '@/ui/theme';
+import { colors, refreshIndicator, spacing } from '@/ui/theme';
 import { FilterChips } from './filter-chips';
 import { filterPairs, type MarketFilter } from './filter-pairs';
 import { MarketRow } from './market-row';
 import { SearchField } from './search-field';
-import { usePairsMeta } from './use-pairs-meta';
+import { usePairsMeta, usePairsMetaRefresh } from './use-pairs-meta';
 
 const keyExtractor = (pair: PairMeta): string => pair.symbol;
 
 export function MarketsScreen() {
   const router = useRouter();
-  const { data: pairs, isPending, error, refetch } = usePairsMeta();
+  const { data: pairs, isPending, error } = usePairsMeta();
+  const { refreshing, refresh } = usePairsMetaRefresh();
   const favourites = useUserSettingsStore((state) => state.favourites);
   const selectPair = useUserSettingsStore((state) => state.selectPair);
 
   const [query, setQuery] = useState('');
   const [filter, setFilter] = useState<MarketFilter>('all');
-  const [refreshing, setRefreshing] = useState(false);
   const visiblePairs = filterPairs(pairs ?? [], useDeferredValue(query), filter, favourites);
-
-  // Pull-to-refresh touches only the REST query; the socket is a separate
-  // channel owned by the stream layer and keeps delivering throughout.
-  const refresh = (): void => {
-    setRefreshing(true);
-    void refetch().finally(() => {
-      setRefreshing(false);
-    });
-  };
 
   const openPair = (pair: PairMeta): void => {
     selectPair(pair.symbol);
@@ -64,13 +55,7 @@ export function MarketsScreen() {
         keyboardDismissMode="on-drag"
         contentContainerStyle={styles.listContent}
         refreshControl={
-          <RefreshControl
-            refreshing={refreshing}
-            onRefresh={refresh}
-            tintColor={colors.positive}
-            colors={[colors.positive]}
-            progressBackgroundColor={colors.surface}
-          />
+          <RefreshControl refreshing={refreshing} onRefresh={refresh} {...refreshIndicator} />
         }
         ListEmptyComponent={
           <EmptyState

@@ -1,13 +1,20 @@
-import { ActivityIndicator, Pressable, ScrollView, StyleSheet, View } from 'react-native';
+import {
+  ActivityIndicator,
+  Pressable,
+  RefreshControl,
+  ScrollView,
+  StyleSheet,
+  View,
+} from 'react-native';
 import { useConnectionStore } from '@/core/stream/connection-store';
 import { marketStream } from '@/core/stream/market-stream';
 import { useBookSubscription } from '@/core/stream/use-book-subscription';
-import { usePairMeta } from '@/features/markets/use-pairs-meta';
+import { usePairMeta, usePairsMetaRefresh } from '@/features/markets/use-pairs-meta';
 import { useUserSettingsStore } from '@/features/settings/user-settings-store';
 import { AppHeader } from '@/ui/app-header';
 import { AppText } from '@/ui/app-text';
 import { Icon } from '@/ui/icon';
-import { colors, radius, spacing } from '@/ui/theme';
+import { colors, radius, refreshIndicator, spacing } from '@/ui/theme';
 import { DepthChart } from './depth-chart';
 import { OrderBook } from './order-book';
 import { PriceTickerCard } from './price-ticker-card';
@@ -16,6 +23,7 @@ export function TerminalScreen() {
   const symbol = useUserSettingsStore((state) => state.selectedPair);
   const pair = usePairMeta(symbol);
   const paused = useConnectionStore((state) => state.paused);
+  const { refreshing, refresh } = usePairsMetaRefresh();
 
   useBookSubscription(symbol);
 
@@ -41,7 +49,11 @@ export function TerminalScreen() {
       />
 
       {pair ? (
-        <ScrollView>
+        <ScrollView
+          refreshControl={
+            <RefreshControl refreshing={refreshing} onRefresh={refresh} {...refreshIndicator} />
+          }
+        >
           <PriceTickerCard pair={pair} />
           <OrderBook pair={pair} />
           <DepthChart pair={pair} />
