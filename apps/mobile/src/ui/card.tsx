@@ -12,7 +12,8 @@ const styles = StyleSheet.create({
     borderColor: colors.surfaceMuted,
     borderWidth: 1,
     borderRadius: radius.md,
-    padding: 25,
+    // Figma strokes sit inside the box: its 25pt inset is a 1pt border plus 24pt of padding.
+    padding: 24,
     gap: spacing.xl,
   },
 });

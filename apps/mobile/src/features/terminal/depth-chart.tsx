@@ -123,7 +123,7 @@ const styles = StyleSheet.create({
     flexDirection: 'row',
     alignItems: 'center',
     gap: spacing.lg,
-    padding: 9,
+    padding: spacing.sm,
     borderRadius: radius.sm,
     borderWidth: 1,
     borderColor: colors.outline,

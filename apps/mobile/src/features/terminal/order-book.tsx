@@ -75,13 +75,17 @@ function BookSection({ side, title, levels, scale, pair }: BookSectionProps) {
 
 const styles = StyleSheet.create({
   book: { backgroundColor: colors.background },
-  section: { padding: spacing.xs, borderBottomWidth: 1, borderBottomColor: colors.outline },
+  section: {
+    padding: spacing.xs,
+    paddingBottom: spacing.xs - 1,
+    borderBottomWidth: 1,
+    borderBottomColor: colors.outline,
+  },
   header: {
     flexDirection: 'row',
     justifyContent: 'space-between',
     paddingHorizontal: spacing.sm,
-    paddingTop: 4,
-    paddingBottom: 5,
+    paddingVertical: spacing.xs,
     backgroundColor: withAlpha(colors.surfaceOverlay, 0.5),
     borderBottomWidth: 1,
     borderBottomColor: colors.outline,

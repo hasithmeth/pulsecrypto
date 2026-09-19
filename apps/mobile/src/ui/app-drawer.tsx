@@ -200,7 +200,7 @@ const styles = StyleSheet.create({
     alignItems: 'center',
     gap: spacing.lg,
     paddingHorizontal: spacing.xl,
-    paddingBottom: 25,
+    paddingBottom: spacing.xl,
     backgroundColor: colors.surface,
     borderBottomWidth: 1,
     borderBottomColor: colors.outline,
@@ -236,7 +236,7 @@ const styles = StyleSheet.create({
   itemFirst: { paddingTop: spacing.lg },
   itemHighlighted: { backgroundColor: colors.positiveStrong },
   footer: {
-    paddingTop: 17,
+    paddingTop: spacing.lg,
     paddingHorizontal: spacing.lg,
     borderTopWidth: 1,
     borderTopColor: colors.outline,

@@ -72,7 +72,7 @@ function Stat({ label, value }: { label: string; value: string }) {
 const styles = StyleSheet.create({
   card: {
     paddingTop: spacing.lg,
-    paddingBottom: 17,
+    paddingBottom: spacing.lg,
     backgroundColor: colors.surface,
     borderBottomWidth: 1,
     borderBottomColor: colors.outline,

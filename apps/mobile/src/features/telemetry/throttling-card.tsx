@@ -106,7 +106,7 @@ const styles = StyleSheet.create({
   scale: { flexDirection: 'row', justifyContent: 'space-between', marginTop: -8 },
   options: {
     gap: spacing.lg,
-    paddingTop: 17,
+    paddingTop: spacing.lg,
     borderTopWidth: 1,
     borderTopColor: colors.outline,
   },
