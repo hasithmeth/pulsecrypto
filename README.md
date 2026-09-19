@@ -209,6 +209,8 @@ Books save less because a float64 costs 9 bytes either way. The cost is decoding
 - **Stream frames skip schema validation on the phone.** They come from our own gateway many times a second; re-proving the shared contract on every frame would spend the JS thread's budget for nothing. REST responses, which are rare, are validated.
 - **Hand-rolled number formatting.** The order book formats dozens of cells per frame, so formatting is a `toFixed` plus a grouping pass: cheap, predictable, and independent of the engine's `Intl` implementation.
 - **Storage behind one file.** The settings cache depends on Zustand's `StateStorage` contract; `src/core/storage/app-storage.ts` is the only place that names AsyncStorage.
+- **One typography scale, two text engines.** The design sets many line heights at or below the font size (labels 11/11, numbers 14/14). Android honours that once its font padding is off. iOS only centres glyphs when the line box is at least the font's natural height (1.21x for Inter, 1.32x for JetBrains Mono, read from the fonts' `hhea` tables); in a shorter box all the overflow goes upward, so labels rode up into the icons and values above them. On iOS the tokens therefore keep the natural line box and use negative margins to shrink the layout footprint back to the design's. Screens never branch on platform; `src/ui/theme.ts` is the only place that knows.
+- **Figma strokes sit inside the box.** A 25pt inset in Figma is a 1pt border plus 24pt of padding, not 25 plus 1. Cards, badges, the depth overlay, section headers and the drawer follow that rule.
 - **Design assets are the real ones.** Icons are the SVG paths exported from Figma, generated into one typed component with the path data untouched. Typography tokens carry the exact weights, sizes, line heights and tracking of the Figma text styles.
 - **React Compiler is enabled**, with the matching `react-hooks` lint rules. The design does not rely on it: subscriptions are already narrow.
 
@@ -282,7 +284,7 @@ Each of these was exercised on the Android emulator: live prices and flashes, se
 
 ## Design fidelity
 
-The UI is built from the Figma file itself, read through Figma's developer tooling: exact text styles, colours, spacing and the SVG icon assets. Header, tab bar (four tabs with the scaled active pill), side drawer, price ticker, order book, depth chart with its overlay, the throttling card with its custom slider and toggles, the performance dashboard, and the three micro-cards follow their Figma nodes. Each was compared side by side with the Figma render on the emulator.
+The UI is built from the Figma file itself, read through Figma's developer tooling: exact text styles, colours, spacing and the SVG icon assets. Header, tab bar (four tabs with the scaled active pill), side drawer, price ticker, order book, depth chart with its overlay, the throttling card with its custom slider and toggles, the performance dashboard, and the three micro-cards follow their Figma nodes. Each was compared side by side with the Figma render on the Android emulator and on the iOS simulator.
 
 Where the app departs from the design, it is deliberate:
 
