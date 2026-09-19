@@ -50,6 +50,12 @@ const EnvSchema = z
     CLIENT_HEARTBEAT_MS: int(3_000, 100),
     CLIENT_PING_INTERVAL_MS: int(15_000, 1_000),
     CLIENT_MAX_INVALID_MESSAGES: int(5, 1),
+    CLIENT_AUTH_DEADLINE_MS: int(5_000, 100),
+
+    AUTH_SECRET: z.string().min(32).optional(),
+    AUTH_TOKEN_TTL: z.string().default('7d'),
+    AUTH_RATE_LIMIT_MAX: int(20, 1),
+    DATA_DIR: z.string().default('./data'),
 
     STATS_LOG_INTERVAL_MS: int(10_000),
   })
@@ -67,6 +73,9 @@ const EnvSchema = z
   });
 
 type Env = z.infer<typeof EnvSchema>;
+
+/** Lets a fresh clone run with no setup. Never accepted when NODE_ENV is production. */
+const DEVELOPMENT_SECRET = 'pulsecrypto-development-secret-do-not-deploy';
 
 export interface Config {
   readonly env: Env['NODE_ENV'];
@@ -94,6 +103,14 @@ export interface Config {
     readonly heartbeatMs: number;
     readonly pingIntervalMs: number;
     readonly maxInvalidMessages: number;
+    readonly authDeadlineMs: number;
+  };
+  readonly auth: {
+    readonly secret: string;
+    readonly usesDevelopmentSecret: boolean;
+    readonly tokenTtl: string;
+    readonly rateLimitMax: number;
+    readonly dataDir: string;
   };
   readonly statsLogIntervalMs: number;
 }
@@ -108,6 +125,9 @@ export function loadConfig(source: NodeJS.ProcessEnv = process.env): Config {
     throw new ConfigError(`Invalid environment:\n${z.prettifyError(result.error)}`);
   }
   const env = result.data;
+  if (env.NODE_ENV === 'production' && env.AUTH_SECRET === undefined) {
+    throw new ConfigError('AUTH_SECRET is required in production (at least 32 characters)');
+  }
   return {
     env: env.NODE_ENV,
     host: env.HOST,
@@ -134,6 +154,14 @@ export function loadConfig(source: NodeJS.ProcessEnv = process.env): Config {
       heartbeatMs: env.CLIENT_HEARTBEAT_MS,
       pingIntervalMs: env.CLIENT_PING_INTERVAL_MS,
       maxInvalidMessages: env.CLIENT_MAX_INVALID_MESSAGES,
+      authDeadlineMs: env.CLIENT_AUTH_DEADLINE_MS,
+    },
+    auth: {
+      secret: env.AUTH_SECRET ?? DEVELOPMENT_SECRET,
+      usesDevelopmentSecret: env.AUTH_SECRET === undefined,
+      tokenTtl: env.AUTH_TOKEN_TTL,
+      rateLimitMax: env.AUTH_RATE_LIMIT_MAX,
+      dataDir: env.DATA_DIR,
     },
     statsLogIntervalMs: env.STATS_LOG_INTERVAL_MS,
   };

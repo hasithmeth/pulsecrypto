@@ -23,4 +23,12 @@ describe('loadConfig', () => {
   ])('rejects %s', (_, env) => {
     expect(() => loadConfig(env)).toThrow(ConfigError);
   });
+
+  it('refuses to start in production without an auth secret', () => {
+    expect(() => loadConfig({ NODE_ENV: 'production' })).toThrow(ConfigError);
+    expect(
+      loadConfig({ NODE_ENV: 'production', AUTH_SECRET: 'x'.repeat(32) }).auth
+        .usesDevelopmentSecret,
+    ).toBe(false);
+  });
 });
