@@ -2,7 +2,8 @@ const GROUPING = /\B(?=(\d{3})+(?!\d))/g;
 
 /**
  * Hand-rolled instead of Intl.NumberFormat: the order book formats dozens of
- * cells per frame, and Hermes' Intl is an order of magnitude slower per call.
+ * cells per frame, so the cost must be small, predictable and independent of
+ * the engine's Intl implementation.
  */
 export function formatDecimal(value: number, decimals: number): string {
   if (!Number.isFinite(value)) return '--';
