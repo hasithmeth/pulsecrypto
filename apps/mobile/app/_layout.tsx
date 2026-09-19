@@ -10,19 +10,42 @@ import {
 } from '@expo-google-fonts/jetbrains-mono';
 import { QueryClientProvider } from '@tanstack/react-query';
 import { useFonts } from 'expo-font';
-import { Stack } from 'expo-router';
+import { Stack, type ErrorBoundaryProps } from 'expo-router';
 import * as SplashScreen from 'expo-splash-screen';
 import { StatusBar } from 'expo-status-bar';
 import { useEffect } from 'react';
 import { StyleSheet } from 'react-native';
 import { GestureHandlerRootView } from 'react-native-gesture-handler';
 import { bindQueryLifecycle, queryClient } from '@/core/api/query-client';
+import { useMarketStore } from '@/core/stream/market-store';
 import { useAuthStore } from '@/features/auth/auth-store';
 import { useSessionLifecycle } from '@/features/auth/use-session-lifecycle';
 import { useRecoverPairsMetaOnReconnect } from '@/features/markets/use-pairs-meta';
+import { ErrorScreen } from '@/ui/error-screen';
 import { colors } from '@/ui/theme';
 
 void SplashScreen.preventAutoHideAsync();
+
+/**
+ * Catches render errors anywhere below the root layout. By the time this shows,
+ * the layout has unmounted, so the stream, settings sync and query cache are
+ * already torn down; retrying mounts them again from a clean state.
+ */
+export function ErrorBoundary({ error, retry }: ErrorBoundaryProps) {
+  useEffect(() => {
+    void SplashScreen.hideAsync();
+  }, []);
+
+  return (
+    <ErrorScreen
+      error={error}
+      onRetry={() => {
+        useMarketStore.getState().reset();
+        void retry();
+      }}
+    />
+  );
+}
 
 function AppServices() {
   useSessionLifecycle();

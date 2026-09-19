@@ -7,11 +7,14 @@ interface MarketStore {
   readonly books: Readonly<Record<PairSymbol, Book>>;
   readonly lastFrameAt: number | null;
   readonly applyBatch: (batch: MarketBatch, receivedAt: number) => void;
+  readonly reset: () => void;
 }
 
 /**
  * Live market data, written only by the stream layer. It is never cleared on
  * disconnect, which is what keeps the last known prices on screen while offline.
+ * It is cleared when the app recovers from a crash, because the data on screen
+ * at that moment is the most likely cause.
  */
 export const useMarketStore = create<MarketStore>((set) => ({
   tickers: {},
@@ -31,6 +34,9 @@ export const useMarketStore = create<MarketStore>((set) => ({
         lastFrameAt: receivedAt,
       };
     });
+  },
+  reset: () => {
+    set({ tickers: {}, books: {}, lastFrameAt: null });
   },
 }));
 
