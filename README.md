@@ -89,27 +89,153 @@ CI (`.github/workflows/ci.yml`) runs the format check, `pnpm check` and the gate
 
 ## Architecture
 
+Four views, from the outside in: what runs where, what is inside each side, and how the two talk at runtime.
+
+### System overview
+
 ```mermaid
-flowchart LR
-  B[(Binance<br/>combined stream)] -->|depth20@100ms<br/>aggTrade, ticker| F[BinanceFeed<br/>validate, reconnect, watchdog]
-  S[SimulatedFeed] -.->|MARKET_SOURCE=simulated| MS
-  F --> MS[MarketState<br/>latest value per pair + seq]
-  MS --> E[FrameEncoder<br/>serialise once per change]
-  E --> BR[Broadcaster<br/>shared tick, per-client cursors,<br/>backpressure policy]
-  MS --> R[GET /pairs/meta]
-  AU[Auth API<br/>scrypt, JWT, user store] -->|verifies token| BR
-  BR -->|WebSocket /ws<br/>JSON or MessagePack| C[MarketStreamClient<br/>auth, state machine, backoff, watchdog]
-  R -->|HTTP| Q[TanStack Query]
-  AU <-->|login, /me/settings| SS[Session + settings sync]
-  SS --> ST
-  C --> CO[FrameCoalescer<br/>one commit per animation frame]
-  CO --> ST[(Zustand stores)]
-  ST -->|fine-grained selectors| UI[React components]
-  UI -->|shared values| RA[Reanimated<br/>UI thread]
-  Q --> UI
+flowchart TB
+  BIN[("Binance<br/>public market streams")]
+
+  subgraph HOST["Developer machine"]
+    GW["apps/gateway<br/>Node.js, Fastify<br/>market-data gateway and accounts"]
+    UF[("users.json<br/>accounts and settings")]
+  end
+
+  subgraph PHONE["Android emulator or iOS simulator"]
+    APP["apps/mobile<br/>React Native, Expo"]
+    DS[("SecureStore: session token<br/>AsyncStorage: settings cache")]
+  end
+
+  CT["packages/contracts<br/>zod schemas and inferred types"]
+
+  BIN -->|"WebSocket, about 100 updates/s"| GW
+  GW ==>|"WebSocket /ws<br/>10 frames/s, JSON or MessagePack"| APP
+  GW <-->|"HTTP<br/>/pairs/meta, /auth, /me/settings"| APP
+  GW --- UF
+  APP --- DS
+  GW -.->|"imports"| CT
+  APP -.->|"imports"| CT
 ```
 
+Two deployable units and one shared package. The gateway is the only thing that talks to Binance; the app only ever talks to the gateway, over one WebSocket for live data and plain HTTP for everything that is not live. `packages/contracts` holds the message and API shapes as zod schemas, so both sides compile against the same types and a protocol change that breaks one side fails its typecheck.
+
 The same idea appears on both sides of the wire: **keep only the latest state, and let the consumer's pace decide how often it is read**. The gateway conflates Binance's firehose into one slot per pair; the app conflates incoming frames into one React commit per animation frame.
+
+### Inside the gateway
+
+```mermaid
+flowchart TB
+  BIN[("Binance")]
+
+  subgraph GW["apps/gateway"]
+    BF["ingest: BinanceFeed<br/>validate, backoff, watchdog"]
+    SF["ingest: SimulatedFeed"]
+    MS["domain: MarketState<br/>one slot per pair + sequence"]
+    FE["broadcast: FrameEncoder<br/>serialise once per change"]
+    BR["broadcast: Broadcaster<br/>shared tick, cursors, watermarks"]
+    RT["http: routes<br/>/pairs/meta, /auth, /me/settings, /health"]
+    AS["auth: AuthService<br/>scrypt, JWT"]
+    UR[("UserRepository port<br/>JSON file adapter")]
+  end
+
+  CL(["Mobile clients"])
+
+  BIN --> BF --> MS
+  SF -.->|"MARKET_SOURCE=simulated"| MS
+  MS --> FE --> BR
+  MS -.->|"24 h stats"| RT
+  RT --> AS --> UR
+  AS -.->|"verifies stream token"| BR
+  BR ==>|"/ws frames"| CL
+  RT <-->|"HTTP"| CL
+```
+
+Data flows one way, from a `MarketFeed` adapter into `MarketState` and out through the broadcaster. Nothing downstream of `MarketState` knows where the data came from, which is why the simulated feed can stand in for Binance in load tests. Accounts sit beside that path and touch it in one place: the broadcaster asks `AuthService` to verify a token before it sends `hello`. The details of conflation and slow-consumer handling are in [Buffering strategy](#buffering-strategy).
+
+### Inside the app
+
+```mermaid
+flowchart TB
+  GWS(["Gateway /ws"])
+  GWH(["Gateway HTTP"])
+
+  subgraph APP["apps/mobile"]
+    SC["core/stream<br/>MarketStreamClient<br/>state machine, backoff, watchdog"]
+    FC["core/stream<br/>FrameCoalescer<br/>latest per pair"]
+    AP["core/stream<br/>AdaptiveInterval"]
+    HC["core/api<br/>HTTP client<br/>zod-validated"]
+    MK[("market store")]
+    CN[("connection store")]
+    TQ[("TanStack Query<br/>pairs metadata")]
+    AU[("auth store<br/>SecureStore")]
+    US[("user settings store<br/>synced, cached per user")]
+    UI["features + ui<br/>screens, per-row selectors"]
+    RE["Reanimated<br/>UI thread"]
+  end
+
+  GWS ==> SC --> FC
+  FC -->|"one commit per display frame"| MK
+  SC --> CN
+  FC -.->|"coalesced share"| AP
+  AP -.->|"configure interval"| SC
+  GWH <--> HC
+  HC --> TQ
+  HC --> AU
+  HC <--> US
+  MK --> UI
+  CN --> UI
+  TQ --> UI
+  AU --> UI
+  US --> UI
+  UI -->|"shared values"| RE
+```
+
+Each kind of state has one owner, and only one layer writes to it: the stream layer writes market and connection state, the API layer fills the query cache, the session and the user's settings. Screens read through narrow selectors and never talk to the socket or to `fetch` directly. `AdaptiveInterval` closes the loop: when too many frames have to be coalesced, it asks the gateway for a slower stream. The reasoning is under [Architectural decisions](#architectural-decisions).
+
+### Stream lifecycle
+
+```mermaid
+sequenceDiagram
+  autonumber
+  participant App as Mobile app
+  participant GW as Gateway
+  participant BN as Binance
+
+  GW->>BN: subscribe to the combined stream at boot
+  BN-->>GW: depth, trade and ticker updates, about 100/s
+  Note over GW: every update overwrites its pair's slot
+
+  App->>GW: POST /auth/login
+  GW-->>App: JWT and user
+  App->>GW: open /ws, then auth { token }
+  alt token valid
+    GW-->>App: hello { intervalMs, encoding, pairs, upstream }
+  else token invalid, or silent for 5 s
+    GW--xApp: close 4003
+  end
+  App->>GW: subscribe { book, pair } and configure { intervalMs, encoding }
+
+  loop every client interval, 100 ms by default
+    GW-->>App: market { tickers, books }, only pairs whose sequence moved
+  end
+  Note over App: frames coalesce into one store commit per display frame
+
+  opt client stops reading
+    Note over GW: bufferedAmount above the high watermark:<br/>ticks are skipped and cursors stay put
+    GW--xApp: terminate at the congestion limit or the hard limit
+  end
+
+  opt connection lost
+    Note over App: last data stays on screen, status shows RECONNECTING
+    App->>GW: reconnect after jittered backoff, auth again
+    App->>GW: replay subscriptions, interval and encoding
+  end
+```
+
+The wire format, close codes and limits are specified in [`docs/protocol.md`](docs/protocol.md).
+
+### Source layout
 
 ```
 apps/gateway/src
@@ -128,8 +254,6 @@ apps/mobile
   src/ui/        tokens and icons exported from Figma, header, tab bar, drawer, controls
   src/lib/       number and time formatting
 ```
-
-The protocol is documented in [`docs/protocol.md`](docs/protocol.md).
 
 ## Buffering strategy
 
