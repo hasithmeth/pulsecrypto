@@ -9,6 +9,7 @@ const pair = (base: string, displayName: string): PairMeta => ({
   status: 'TRADING',
   priceDecimals: 2,
   quantityDecimals: 4,
+  circulatingSupply: 1_000_000,
   high24h: null,
   low24h: null,
   volume24h: null,

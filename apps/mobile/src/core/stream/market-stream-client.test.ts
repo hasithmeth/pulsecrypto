@@ -34,9 +34,10 @@ class FakeSocket implements WebSocketLike {
 
 const hello = (overrides: Partial<HelloMessage> = {}): HelloMessage => ({
   type: 'hello',
-  protocolVersion: 1,
+  protocolVersion: 2,
   serverTime: 0,
   intervalMs: 100,
+  encoding: 'json',
   limits: { minIntervalMs: 10, maxIntervalMs: 1_000 },
   pairs: ['BTCUSDT'],
   upstream: 'live',

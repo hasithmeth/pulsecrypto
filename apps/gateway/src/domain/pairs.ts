@@ -8,6 +8,8 @@ export interface PairDefinition {
   readonly status: TradingStatus;
   readonly priceDecimals: number;
   readonly quantityDecimals: number;
+  /** Approximate. Binance publishes no supply data, and the UI only needs an indicative market cap. */
+  readonly circulatingSupply: number;
 }
 
 const define = (
@@ -15,6 +17,7 @@ const define = (
   displayName: string,
   priceDecimals: number,
   quantityDecimals: number,
+  circulatingSupply: number,
 ): PairDefinition => ({
   symbol: `${base}USDT`,
   base,
@@ -23,19 +26,20 @@ const define = (
   status: 'TRADING',
   priceDecimals,
   quantityDecimals,
+  circulatingSupply,
 });
 
 const KNOWN_PAIRS: readonly PairDefinition[] = [
-  define('BTC', 'Bitcoin', 2, 5),
-  define('ETH', 'Ethereum', 2, 4),
-  define('SOL', 'Solana', 2, 3),
-  define('DOGE', 'Dogecoin', 5, 0),
-  define('XRP', 'XRP', 4, 1),
-  define('BNB', 'BNB', 2, 3),
-  define('ADA', 'Cardano', 4, 1),
-  define('LINK', 'Chainlink', 2, 2),
-  define('AVAX', 'Avalanche', 2, 2),
-  define('LTC', 'Litecoin', 2, 3),
+  define('BTC', 'Bitcoin', 2, 5, 19_900_000),
+  define('ETH', 'Ethereum', 2, 4, 120_700_000),
+  define('SOL', 'Solana', 2, 3, 540_000_000),
+  define('DOGE', 'Dogecoin', 5, 0, 150_000_000_000),
+  define('XRP', 'XRP', 4, 1, 59_000_000_000),
+  define('BNB', 'BNB', 2, 3, 139_000_000),
+  define('ADA', 'Cardano', 4, 1, 36_000_000_000),
+  define('LINK', 'Chainlink', 2, 2, 678_000_000),
+  define('AVAX', 'Avalanche', 2, 2, 422_000_000),
+  define('LTC', 'Litecoin', 2, 3, 76_000_000),
 ];
 
 const BY_SYMBOL = new Map(KNOWN_PAIRS.map((pair) => [pair.symbol, pair]));

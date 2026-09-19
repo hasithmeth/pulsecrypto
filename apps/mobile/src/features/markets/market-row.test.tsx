@@ -14,6 +14,7 @@ const BTC: PairMeta = {
   status: 'TRADING',
   priceDecimals: 2,
   quantityDecimals: 5,
+  circulatingSupply: 19_900_000,
   high24h: null,
   low24h: null,
   volume24h: null,

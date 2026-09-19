@@ -12,6 +12,8 @@ export const PairMetaSchema = z.object({
   status: TradingStatusSchema,
   priceDecimals: z.number().int().nonnegative(),
   quantityDecimals: z.number().int().nonnegative(),
+  /** Approximate, used only to derive an indicative market capitalisation. */
+  circulatingSupply: z.number().positive(),
   high24h: z.number().nullable(),
   low24h: z.number().nullable(),
   volume24h: z.number().nullable(),

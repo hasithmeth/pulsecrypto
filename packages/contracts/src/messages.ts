@@ -2,6 +2,9 @@ import { z } from 'zod';
 import { BookSchema, PairSymbolSchema, TickerSchema, UpstreamStatusSchema } from './market';
 
 export const ChannelSchema = z.enum(['book']);
+
+export const EncodingSchema = z.enum(['json', 'msgpack']);
+export type Encoding = z.infer<typeof EncodingSchema>;
 export type Channel = z.infer<typeof ChannelSchema>;
 
 export const HelloMessageSchema = z.object({
@@ -9,6 +12,7 @@ export const HelloMessageSchema = z.object({
   protocolVersion: z.number().int(),
   serverTime: z.number(),
   intervalMs: z.number(),
+  encoding: EncodingSchema,
   limits: z.object({
     minIntervalMs: z.number(),
     maxIntervalMs: z.number(),
@@ -35,6 +39,7 @@ export type StatusMessage = z.infer<typeof StatusMessageSchema>;
 export const ConfiguredMessageSchema = z.object({
   type: z.literal('configured'),
   intervalMs: z.number(),
+  encoding: EncodingSchema,
 });
 export type ConfiguredMessage = z.infer<typeof ConfiguredMessageSchema>;
 
@@ -45,7 +50,7 @@ export const PongMessageSchema = z.object({
 });
 export type PongMessage = z.infer<typeof PongMessageSchema>;
 
-export const ErrorCodeSchema = z.enum(['invalid_message', 'unknown_pair']);
+export const ErrorCodeSchema = z.enum(['invalid_message', 'unknown_pair', 'unauthenticated']);
 export type ErrorCode = z.infer<typeof ErrorCodeSchema>;
 
 export const ErrorMessageSchema = z.object({
@@ -65,6 +70,11 @@ export const ServerMessageSchema = z.discriminatedUnion('type', [
 ]);
 export type ServerMessage = z.infer<typeof ServerMessageSchema>;
 
+export const AuthMessageSchema = z.object({
+  type: z.literal('auth'),
+  token: z.string().min(1).max(4096),
+});
+
 export const SubscribeMessageSchema = z.object({
   type: z.literal('subscribe'),
   channel: ChannelSchema,
@@ -77,10 +87,15 @@ export const UnsubscribeMessageSchema = z.object({
   pair: PairSymbolSchema,
 });
 
-export const ConfigureMessageSchema = z.object({
-  type: z.literal('configure'),
-  intervalMs: z.number().positive(),
-});
+export const ConfigureMessageSchema = z
+  .object({
+    type: z.literal('configure'),
+    intervalMs: z.number().positive().optional(),
+    encoding: EncodingSchema.optional(),
+  })
+  .refine((message) => message.intervalMs !== undefined || message.encoding !== undefined, {
+    message: 'configure needs intervalMs or encoding',
+  });
 
 export const PingMessageSchema = z.object({
   type: z.literal('ping'),
@@ -88,6 +103,7 @@ export const PingMessageSchema = z.object({
 });
 
 export const ClientMessageSchema = z.discriminatedUnion('type', [
+  AuthMessageSchema,
   SubscribeMessageSchema,
   UnsubscribeMessageSchema,
   ConfigureMessageSchema,

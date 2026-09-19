@@ -12,8 +12,17 @@ describe('ClientMessageSchema', () => {
     ['an unknown channel', { type: 'subscribe', channel: 'trades', pair: 'BTCUSDT' }],
     ['a malformed pair', { type: 'subscribe', channel: 'book', pair: 'btc/usdt' }],
     ['a non-positive interval', { type: 'configure', intervalMs: 0 }],
+    ['an empty configure', { type: 'configure' }],
+    ['an unknown encoding', { type: 'configure', encoding: 'protobuf' }],
+    ['an empty auth token', { type: 'auth', token: '' }],
   ])('rejects %s', (_, message) => {
     expect(ClientMessageSchema.safeParse(message).success).toBe(false);
+  });
+
+  it('accepts configuring only the encoding', () => {
+    expect(ClientMessageSchema.safeParse({ type: 'configure', encoding: 'msgpack' }).success).toBe(
+      true,
+    );
   });
 });
 
