@@ -25,7 +25,7 @@ const symbols = (pairs: PairMeta[]): string[] => pairs.map((entry) => entry.base
 
 describe('filterPairs', () => {
   it('returns everything in gateway order when nothing is filtered', () => {
-    expect(symbols(filterPairs(PAIRS, '', 'all', {}))).toEqual(['BTC', 'ETH', 'SOL', 'DOGE']);
+    expect(symbols(filterPairs(PAIRS, '', 'all', []))).toEqual(['BTC', 'ETH', 'SOL', 'DOGE']);
   });
 
   it.each([
@@ -36,11 +36,11 @@ describe('filterPairs', () => {
     ['usdt', ['BTC', 'ETH', 'SOL', 'DOGE']],
     ['zzz', []],
   ])('matches "%s" against symbols and names', (query, expected) => {
-    expect(symbols(filterPairs(PAIRS, query, 'all', {}))).toEqual(expected);
+    expect(symbols(filterPairs(PAIRS, query, 'all', []))).toEqual(expected);
   });
 
   it('pins favourites to the top without reordering the rest', () => {
-    expect(symbols(filterPairs(PAIRS, '', 'all', { SOLUSDT: true, DOGEUSDT: true }))).toEqual([
+    expect(symbols(filterPairs(PAIRS, '', 'all', ['DOGEUSDT', 'SOLUSDT']))).toEqual([
       'SOL',
       'DOGE',
       'BTC',
@@ -49,7 +49,7 @@ describe('filterPairs', () => {
   });
 
   it('combines the favourites filter with search', () => {
-    const favourites = { BTCUSDT: true, ETHUSDT: true } as const;
+    const favourites = ['BTCUSDT', 'ETHUSDT'];
     expect(symbols(filterPairs(PAIRS, '', 'favourites', favourites))).toEqual(['BTC', 'ETH']);
     expect(symbols(filterPairs(PAIRS, 'eth', 'favourites', favourites))).toEqual(['ETH']);
   });

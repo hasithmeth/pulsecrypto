@@ -3,7 +3,7 @@ import { act, fireEvent, render, screen } from '@testing-library/react-native';
 import { useConnectionStore } from '@/core/stream/connection-store';
 import { useMarketStore } from '@/core/stream/market-store';
 import { INITIAL_CONNECTION } from '@/core/stream/market-stream-client';
-import { useFavouritesStore } from '@/features/favourites/favourites-store';
+import { useUserSettingsStore } from '@/features/settings/user-settings-store';
 import { MarketRow } from './market-row';
 
 const BTC: PairMeta = {
@@ -38,7 +38,7 @@ const publish = (...tickers: Ticker[]): Promise<void> =>
 
 beforeEach(() => {
   useMarketStore.setState({ tickers: {}, books: {}, lastFrameAt: null });
-  useFavouritesStore.setState({ symbols: {} });
+  useUserSettingsStore.setState({ favourites: [] });
   useConnectionStore.setState({ ...INITIAL_CONNECTION, phase: 'open', upstream: 'live' });
 });
 
@@ -86,7 +86,7 @@ describe('MarketRow', () => {
 
     await fireEvent.press(screen.getByLabelText('Add Bitcoin to favourites'));
 
-    expect(useFavouritesStore.getState().symbols).toEqual({ BTCUSDT: true });
+    expect(useUserSettingsStore.getState().favourites).toEqual(['BTCUSDT']);
     expect(screen.getByLabelText('Remove Bitcoin from favourites')).toBeTruthy();
     expect(onPress).not.toHaveBeenCalled();
   });

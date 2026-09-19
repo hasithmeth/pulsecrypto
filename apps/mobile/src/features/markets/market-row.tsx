@@ -3,7 +3,7 @@ import { memo } from 'react';
 import { Pressable, StyleSheet, View } from 'react-native';
 import { useIsStreamLive } from '@/core/stream/connection-store';
 import { useTicker } from '@/core/stream/market-store';
-import { useFavouritesStore, useIsFavourite } from '@/features/favourites/favourites-store';
+import { useIsFavourite, useUserSettingsStore } from '@/features/settings/user-settings-store';
 import { formatDecimal, formatPercent } from '@/lib/format';
 import { AppText } from '@/ui/app-text';
 import { FlashingPrice } from '@/ui/flashing-price';
@@ -22,7 +22,7 @@ interface MarketRowProps {
 export const MarketRow = memo(function MarketRow({ pair, onPress }: MarketRowProps) {
   const ticker = useTicker(pair.symbol);
   const isFavourite = useIsFavourite(pair.symbol);
-  const toggleFavourite = useFavouritesStore((state) => state.toggle);
+  const toggleFavourite = useUserSettingsStore((state) => state.toggleFavourite);
   const isLive = useIsStreamLive() && ticker !== undefined;
 
   const change = ticker?.change24hPct;
@@ -91,7 +91,7 @@ const styles = StyleSheet.create({
     minHeight: 64,
     paddingLeft: spacing.sm,
     paddingRight: spacing.lg,
-    borderBottomWidth: StyleSheet.hairlineWidth,
+    borderBottomWidth: 1,
     borderBottomColor: colors.outline,
   },
   pressed: { backgroundColor: colors.surface },

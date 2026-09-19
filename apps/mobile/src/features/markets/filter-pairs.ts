@@ -12,15 +12,16 @@ export function filterPairs(
   pairs: readonly PairMeta[],
   query: string,
   filter: MarketFilter,
-  favourites: Readonly<Record<PairSymbol, true>>,
+  favourites: readonly PairSymbol[],
 ): PairMeta[] {
   const needle = normalise(query);
+  const starred = new Set(favourites);
   const visible = pairs.filter(
     (pair) =>
-      (filter === 'all' || favourites[pair.symbol]) && (needle === '' || matches(pair, needle)),
+      (filter === 'all' || starred.has(pair.symbol)) && (needle === '' || matches(pair, needle)),
   );
   return [
-    ...visible.filter((pair) => favourites[pair.symbol]),
-    ...visible.filter((pair) => !favourites[pair.symbol]),
+    ...visible.filter((pair) => starred.has(pair.symbol)),
+    ...visible.filter((pair) => !starred.has(pair.symbol)),
   ];
 }

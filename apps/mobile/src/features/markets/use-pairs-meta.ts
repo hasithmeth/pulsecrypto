@@ -1,7 +1,7 @@
 import { PairsMetaResponseSchema, type PairMeta, type PairSymbol } from '@pulsecrypto/contracts';
 import { useQuery, useQueryClient } from '@tanstack/react-query';
 import { useEffect } from 'react';
-import { getJson } from '@/core/api/http-client';
+import { requestJson } from '@/core/api/http-client';
 import { gateway } from '@/core/config/gateway';
 import { useConnectionPhase } from '@/core/stream/connection-store';
 
@@ -10,7 +10,7 @@ const PAIRS_META_KEY = ['pairs-meta'] as const;
 export function usePairsMeta() {
   return useQuery({
     queryKey: PAIRS_META_KEY,
-    queryFn: ({ signal }) => getJson(gateway.pairsMetaUrl, PairsMetaResponseSchema, { signal }),
+    queryFn: ({ signal }) => requestJson(gateway.pairsMetaUrl, PairsMetaResponseSchema, { signal }),
     select: (response) => response.pairs,
   });
 }

@@ -10,12 +10,9 @@ import {
   View,
 } from 'react-native';
 import { ApiError } from '@/core/api/http-client';
-import { useFavouritesStore } from '@/features/favourites/favourites-store';
-import { usePreferencesStore } from '@/features/preferences/preferences-store';
+import { useUserSettingsStore } from '@/features/settings/user-settings-store';
+import { AppHeader } from '@/ui/app-header';
 import { AppText } from '@/ui/app-text';
-import { ConnectionBanner } from '@/ui/connection-banner';
-import { ConnectionIndicator } from '@/ui/connection-indicator';
-import { ScreenHeader } from '@/ui/screen-header';
 import { colors, spacing } from '@/ui/theme';
 import { FilterChips } from './filter-chips';
 import { filterPairs, type MarketFilter } from './filter-pairs';
@@ -28,8 +25,8 @@ const keyExtractor = (pair: PairMeta): string => pair.symbol;
 export function MarketsScreen() {
   const router = useRouter();
   const { data: pairs, isPending, error, refetch } = usePairsMeta();
-  const favourites = useFavouritesStore((state) => state.symbols);
-  const selectPair = usePreferencesStore((state) => state.selectPair);
+  const favourites = useUserSettingsStore((state) => state.favourites);
+  const selectPair = useUserSettingsStore((state) => state.selectPair);
 
   const [query, setQuery] = useState('');
   const [filter, setFilter] = useState<MarketFilter>('all');
@@ -47,13 +44,12 @@ export function MarketsScreen() {
 
   const openPair = (pair: PairMeta): void => {
     selectPair(pair.symbol);
-    router.navigate('/terminal');
+    router.navigate('/');
   };
 
   return (
     <View style={styles.screen}>
-      <ScreenHeader title="Markets" trailing={<ConnectionIndicator variant="pill" />} />
-      <ConnectionBanner />
+      <AppHeader variant="pill" title="Markets" />
 
       <View style={styles.controls}>
         <SearchField value={query} onChangeText={setQuery} />
@@ -104,7 +100,7 @@ function EmptyState({ loading, error, filter, hasQuery, onRetry }: EmptyStatePro
   if (error) {
     return (
       <View style={styles.empty}>
-        <AppText variant="heading">Markets unavailable</AppText>
+        <AppText variant="cardTitle">Markets unavailable</AppText>
         <AppText color="textSecondary" style={styles.centered}>
           {error instanceof ApiError ? error.message : 'Something went wrong.'} The app will retry
           automatically once the gateway is reachable.
