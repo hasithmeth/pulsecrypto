@@ -1,6 +1,7 @@
 export interface BackoffOptions {
   readonly baseMs: number;
   readonly maxMs: number;
+  readonly minMs?: number;
   readonly random?: () => number;
 }
 
@@ -10,8 +11,16 @@ export interface Backoff {
   reset(): void;
 }
 
-/** Exponential backoff with full jitter, so a fleet of phones does not reconnect in lockstep. */
-export function createBackoff({ baseMs, maxMs, random = Math.random }: BackoffOptions): Backoff {
+/**
+ * Exponential backoff with full jitter above an optional floor, so a fleet of
+ * phones does not reconnect in lockstep and no delay is shorter than `minMs`.
+ */
+export function createBackoff({
+  baseMs,
+  maxMs,
+  minMs = 0,
+  random = Math.random,
+}: BackoffOptions): Backoff {
   let attempt = 0;
   return {
     get attempt() {
@@ -20,7 +29,7 @@ export function createBackoff({ baseMs, maxMs, random = Math.random }: BackoffOp
     next() {
       const ceiling = Math.min(maxMs, baseMs * 2 ** attempt);
       attempt += 1;
-      return Math.round(random() * ceiling);
+      return minMs + Math.round(random() * ceiling);
     },
     reset() {
       attempt = 0;

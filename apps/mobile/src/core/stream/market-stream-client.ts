@@ -69,6 +69,12 @@ export interface MarketStreamClientOptions {
 const SOCKET_OPEN = 1;
 const WATCHDOG_INTERVAL_MS = 2_000;
 
+// React Native on iOS fires timers shorter than a second from the display link,
+// which stops ticking while the screen is static on a headless simulator; longer
+// timers use a native timer and always fire. A retry is the one timer that must
+// fire from a completely idle app, so it never waits less than this.
+const MIN_RETRY_DELAY_MS = 1_200;
+
 /**
  * Owns the gateway connection and nothing else: no React, no stores. It keeps
  * the socket alive across failures, network loss and backgrounding, and treats
@@ -107,7 +113,8 @@ export class MarketStreamClient {
 
   constructor(private readonly options: MarketStreamClientOptions) {
     this.createSocket = options.createSocket ?? ((url) => new WebSocket(url));
-    this.backoff = options.backoff ?? createBackoff({ baseMs: 500, maxMs: 10_000 });
+    this.backoff =
+      options.backoff ?? createBackoff({ minMs: MIN_RETRY_DELAY_MS, baseMs: 500, maxMs: 10_000 });
     this.now = options.now ?? Date.now;
     this.handshakeTimeoutMs = options.handshakeTimeoutMs ?? 10_000;
     this.silenceTimeoutMs = options.silenceTimeoutMs ?? 10_000;
