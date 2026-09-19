@@ -1,8 +1,12 @@
-import { HankenGrotesk_400Regular } from '@expo-google-fonts/hanken-grotesk';
-import { Inter_400Regular } from '@expo-google-fonts/inter';
+import {
+  HankenGrotesk_600SemiBold,
+  HankenGrotesk_700Bold,
+} from '@expo-google-fonts/hanken-grotesk';
+import { Inter_400Regular, Inter_700Bold } from '@expo-google-fonts/inter';
 import {
   JetBrainsMono_400Regular,
   JetBrainsMono_500Medium,
+  JetBrainsMono_700Bold,
 } from '@expo-google-fonts/jetbrains-mono';
 import { QueryClientProvider } from '@tanstack/react-query';
 import { useFonts } from 'expo-font';
@@ -10,30 +14,26 @@ import { Stack } from 'expo-router';
 import * as SplashScreen from 'expo-splash-screen';
 import { StatusBar } from 'expo-status-bar';
 import { useEffect } from 'react';
+import { StyleSheet } from 'react-native';
+import { GestureHandlerRootView } from 'react-native-gesture-handler';
 import { bindQueryLifecycle, queryClient } from '@/core/api/query-client';
-import { useStreamLifecycle } from '@/core/stream/use-stream-lifecycle';
+import { useAuthStore } from '@/features/auth/auth-store';
+import { useSessionLifecycle } from '@/features/auth/use-session-lifecycle';
 import { useRecoverPairsMetaOnReconnect } from '@/features/markets/use-pairs-meta';
-import { useRestoreStreamInterval } from '@/features/telemetry/use-stream-interval';
 import { colors } from '@/ui/theme';
 
 void SplashScreen.preventAutoHideAsync();
 
 function AppServices() {
-  useStreamLifecycle();
+  useSessionLifecycle();
   useRecoverPairsMetaOnReconnect();
-  useRestoreStreamInterval();
   useEffect(bindQueryLifecycle, []);
   return null;
 }
 
-export default function RootLayout() {
-  const [fontsLoaded, fontError] = useFonts({
-    HankenGrotesk_400Regular,
-    Inter_400Regular,
-    JetBrainsMono_400Regular,
-    JetBrainsMono_500Medium,
-  });
-  const ready = fontsLoaded || fontError !== null;
+function Navigation({ fontsReady }: { fontsReady: boolean }) {
+  const status = useAuthStore((state) => state.status);
+  const ready = fontsReady && status !== 'restoring';
 
   useEffect(() => {
     if (ready) void SplashScreen.hideAsync();
@@ -42,12 +42,41 @@ export default function RootLayout() {
   if (!ready) return null;
 
   return (
-    <QueryClientProvider client={queryClient}>
-      <AppServices />
-      <StatusBar style="light" />
-      <Stack
-        screenOptions={{ headerShown: false, contentStyle: { backgroundColor: colors.background } }}
-      />
-    </QueryClientProvider>
+    <Stack
+      screenOptions={{ headerShown: false, contentStyle: { backgroundColor: colors.background } }}
+    >
+      <Stack.Protected guard={status === 'signedIn'}>
+        <Stack.Screen name="(tabs)" />
+      </Stack.Protected>
+      <Stack.Protected guard={status === 'signedOut'}>
+        <Stack.Screen name="(auth)" />
+      </Stack.Protected>
+    </Stack>
   );
 }
+
+export default function RootLayout() {
+  const [fontsLoaded, fontError] = useFonts({
+    HankenGrotesk_600SemiBold,
+    HankenGrotesk_700Bold,
+    Inter_400Regular,
+    Inter_700Bold,
+    JetBrainsMono_400Regular,
+    JetBrainsMono_500Medium,
+    JetBrainsMono_700Bold,
+  });
+
+  return (
+    <GestureHandlerRootView style={styles.root}>
+      <QueryClientProvider client={queryClient}>
+        <AppServices />
+        <StatusBar style="light" />
+        <Navigation fontsReady={fontsLoaded || fontError !== null} />
+      </QueryClientProvider>
+    </GestureHandlerRootView>
+  );
+}
+
+const styles = StyleSheet.create({
+  root: { flex: 1, backgroundColor: colors.background },
+});

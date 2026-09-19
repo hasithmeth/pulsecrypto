@@ -1,1 +1,1 @@
-export { MarketsScreen as default } from '@/features/markets/markets-screen';
+export { TerminalScreen as default } from '@/features/terminal/terminal-screen';
