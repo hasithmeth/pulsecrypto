@@ -6,7 +6,7 @@ A real-time cryptocurrency market viewer.
 - **`apps/mobile`**: a React Native (Expo SDK 57) app built to the supplied Figma design: trading terminal with a live order book and depth chart, markets watchlist with search and favourites, telemetry, settings, a side drawer, and sign in / sign up.
 - **`packages/contracts`**: the wire protocol and API shapes, shared by both as zod schemas and inferred types.
 
-> Screen recording: _add link here_
+> **Screen recording:** [Android emulator, iOS simulator and the gateway log side by side (YouTube, 7 min)](https://www.youtube.com/watch?v=ngEo2gSqS8s)
 
 ## Contents
 
